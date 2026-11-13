@@ -25,7 +25,6 @@ dbus
 udev
 acpi
 acpid
-acpi-support
 policykit-1
 
 # -----------------------------------------------------------------------------
@@ -82,8 +81,7 @@ findutils
 parted
 fdisk
 gdisk
-lsblk
-blkid
+util-linux
 hdparm
 sdparm
 nvme-cli
@@ -203,7 +201,6 @@ python3-passlib
 prometheus-node-exporter
 collectd
 lm-sensors
-hddtemp
 fancontrol
 powertop
 
@@ -255,10 +252,6 @@ console-setup
 # -----------------------------------------------------------------------------
 # HARDWARE ESPECÍFICO
 # -----------------------------------------------------------------------------
-# Drivers adicionais
-linux-modules-extra-linux-generic
-# Suporte a placas de rede Intel
-firmware-linux-nonfree
 # Plataformas de servidor
 ipmitool
 freeipmi-tools

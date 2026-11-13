@@ -291,6 +291,14 @@ customize_filesystem() {
     echo "nameserver 1.1.1.1" > "${squash_dir}/etc/resolv.conf"
     echo "nameserver 8.8.8.8" >> "${squash_dir}/etc/resolv.conf"
 
+    # Habilitar repositórios universe e multiverse
+    if [[ -f "${squash_dir}/etc/apt/sources.list.d/ubuntu.sources" ]]; then
+        sed -i 's/Components: main/Components: main universe restricted multiverse/' "${squash_dir}/etc/apt/sources.list.d/ubuntu.sources" 2>/dev/null || true
+    fi
+    if [[ -f "${squash_dir}/etc/apt/sources.list" ]]; then
+        sed -i 's/main/main universe restricted multiverse/' "${squash_dir}/etc/apt/sources.list" 2>/dev/null || true
+    fi
+
     # Função para executar comandos no chroot
     chroot_exec() {
         chroot "${squash_dir}" /bin/bash -c "$*" 2>&1 | tee -a "${LOG_FILE}"
@@ -298,12 +306,12 @@ customize_filesystem() {
 
     # --- Atualizar sistema base ---
     info "Atualizando sistema base..."
-    chroot_exec "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq"
+    chroot_exec "apt-get update -qq"
 
     # --- Instalar pacotes NayBinho ---
     info "Instalando pacotes NayBinho NAS..."
     chroot_exec "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        $(grep -v '^#' "${SCRIPT_DIR}/packages.list" | grep -v '^$' | tr '\n' ' ')"
+        $(grep -v '^#' "${SCRIPT_DIR}/packages.list" | grep -v '^$' | tr '\n' ' ') || true"
 
     # --- Instalar Docker Engine ---
     info "Instalando Docker Engine..."
