@@ -236,16 +236,36 @@ prepare_filesystem() {
 
     info "Montando ISO Ubuntu..."
     mount -o loop,ro "${iso_cache}" "${iso_mount}"
-    trap 'umount ${iso_mount} 2>/dev/null; true' EXIT
 
-    info "Copiando conteúdo da ISO..."
-    rsync -a --exclude=/casper/filesystem.squashfs "${iso_mount}/" "${extract_dir}/"
+    # Identificar o squashfs principal do Ubuntu (ubuntu-server-minimal ou filesystem.squashfs)
+    TARGET_SQUASH=""
+    for candidate in \
+        "${iso_mount}/casper/ubuntu-server-minimal.squashfs" \
+        "${iso_mount}/casper/filesystem.squashfs" \
+        "${iso_mount}/casper/minimal.squashfs"; do
+        if [[ -f "${candidate}" ]]; then
+            TARGET_SQUASH="${candidate}"
+            break
+        fi
+    done
+    if [[ -z "${TARGET_SQUASH}" ]]; then
+        TARGET_SQUASH=$(find "${iso_mount}/casper" -name "*.squashfs" 2>/dev/null | head -n 1)
+    fi
 
-    info "Extraindo sistema de arquivos squashfs (pode demorar alguns minutos)..."
-    unsquashfs -f -d "${squash_dir}" "${iso_mount}/casper/filesystem.squashfs"
+    if [[ -z "${TARGET_SQUASH}" || ! -f "${TARGET_SQUASH}" ]]; then
+        die "Nenhum arquivo squashfs encontrado em ${iso_mount}/casper"
+    fi
 
-    umount "${iso_mount}"
-    trap - EXIT
+    TARGET_SQUASH_NAME="$(basename "${TARGET_SQUASH}")"
+    info "Squashfs identificado: ${TARGET_SQUASH_NAME}"
+
+    info "Copiando conteúdo da ISO (estruturas de boot, EFI e kernel)..."
+    rsync -a --exclude="casper/${TARGET_SQUASH_NAME}" "${iso_mount}/" "${extract_dir}/"
+
+    info "Extraindo sistema de arquivos (${TARGET_SQUASH_NAME})..."
+    unsquashfs -f -d "${squash_dir}" "${TARGET_SQUASH}"
+
+    umount "${iso_mount}" 2>/dev/null || true
 
     info "Sistema de arquivos extraído em: ${squash_dir}"
 }
@@ -461,15 +481,13 @@ repack_squashfs() {
 
     local extract_dir="${BUILD_DIR}/iso-extract"
     local squash_dir="${BUILD_DIR}/squashfs-root"
-    local squash_out="${extract_dir}/casper/filesystem.squashfs"
+    local squash_out="${extract_dir}/casper/${TARGET_SQUASH_NAME:-ubuntu-server-minimal.squashfs}"
 
-    info "Gerando novo squashfs (compressão xz — pode demorar 10-20 minutos)..."
+    info "Gerando novo squashfs em ${squash_out}..."
     rm -f "${squash_out}"
     mksquashfs "${squash_dir}" "${squash_out}" \
-        -comp xz \
-        -Xdict-size 100% \
-        -wildcards \
-        -ef "${SCRIPT_DIR}/../.build-excludes" \
+        -comp zstd \
+        -Xcompression-level 15 \
         2>&1 | tee -a "${LOG_FILE}" || \
     mksquashfs "${squash_dir}" "${squash_out}" \
         -comp xz \
@@ -480,8 +498,8 @@ repack_squashfs() {
         > "${extract_dir}/casper/filesystem.manifest" 2>/dev/null || true
 
     local squash_size
-    squash_size=$(du -sx --block-size=1 "${squash_dir}" | cut -f1)
-    printf "%d" "${squash_size}" > "${extract_dir}/casper/filesystem.size"
+    squash_size=$(du -sx --block-size=1 "${squash_dir}" 2>/dev/null | cut -f1 || echo "0")
+    printf "%d" "${squash_size}" > "${extract_dir}/casper/filesystem.size" 2>/dev/null || true
 
     info "squashfs gerado: $(du -sh "${squash_out}" | cut -f1)"
 }
@@ -528,25 +546,38 @@ generate_iso() {
 
     info "Criando ISO com xorriso (suporte UEFI + BIOS)..."
 
+    local boot_args=()
+    if [[ -f "${extract_dir}/boot/grub/i386-pc/eltorito.img" ]]; then
+        boot_args+=(-eltorito-boot boot/grub/i386-pc/eltorito.img -no-emul-boot -boot-load-size 4 -boot-info-table)
+    elif [[ -f "${extract_dir}/isolinux/isolinux.bin" ]]; then
+        boot_args+=(-eltorito-boot isolinux/isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table)
+    fi
+
+    if [[ -f "${extract_dir}/boot/grub/efi.img" ]]; then
+        boot_args+=(--efi-boot boot/grub/efi.img -efi-boot-part --efi-boot-image)
+    fi
+
+    if [[ -f "/usr/lib/ISOLINUX/isohdpfx.bin" ]]; then
+        boot_args+=(-isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin)
+    fi
+
     xorriso -as mkisofs \
         -iso-level 3 \
         -full-iso9660-filenames \
         -volid "${ISO_LABEL}" \
         -output "${iso_out}" \
-        -eltorito-boot boot/grub/i386-pc/eltorito.img \
-        -no-emul-boot \
-        -boot-load-size 4 \
-        -boot-info-table \
-        --efi-boot boot/grub/efi.img \
-        -efi-boot-part \
-        --efi-boot-image \
-        --protective-msdos-label \
-        -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
+        "${boot_args[@]}" \
         "${extract_dir}" \
-        2>&1 | tee -a "${LOG_FILE}"
+        2>&1 | tee -a "${LOG_FILE}" || {
+            info "Tentando fallback xorriso..."
+            xorriso -as mkisofs \
+                -r -V "${ISO_LABEL}" \
+                -o "${iso_out}" \
+                "${extract_dir}" 2>&1 | tee -a "${LOG_FILE}"
+        }
 
     info "Calculando checksum da ISO gerada..."
-    sha256sum "${iso_out}" | tee "${iso_out}.sha256"
+    sha256sum "${iso_out}" > "${iso_out}.sha256"
 
     local iso_size
     iso_size=$(du -sh "${iso_out}" | cut -f1)
