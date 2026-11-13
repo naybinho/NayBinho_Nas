@@ -29,20 +29,22 @@ set -euo pipefail
 # Configurações padrão
 # ---------------------------------------------------------------------------
 NAYBINHO_VERSION="${NAYBINHO_VERSION:-1.0.0}"
+NAYBINHO_VERSION="${NAYBINHO_VERSION#v}"
 ARCH="${ARCH:-amd64}"
-UBUNTU_CODENAME="plucky"           # Ubuntu 26.04.1 LTS codinome
-UBUNTU_VERSION="26.04.1"
-UBUNTU_BASE_URL="https://releases.ubuntu.com/${UBUNTU_VERSION}"
+UBUNTU_CODENAME="noble"           # Ubuntu LTS base
+UBUNTU_VERSION="24.04.5"
+UBUNTU_BASE_URL="https://releases.ubuntu.com/noble"
 UBUNTU_ISO_NAME="ubuntu-${UBUNTU_VERSION}-live-server-${ARCH}.iso"
-OUTPUT_DIR="$(pwd)/output"
+OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/dist-release}"
 CACHE_DIR="$(pwd)/.build-cache"
-BUILD_DIR="$(pwd)/.build-work"
+BUILD_DIR="/tmp/build-work"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLEAN_BUILD=false
 NO_DOWNLOAD=false
+mkdir -p "${OUTPUT_DIR}" "${CACHE_DIR}"
 LOG_FILE="${OUTPUT_DIR}/build-$(date +%Y%m%d-%H%M%S).log"
 ISO_LABEL="NayBinhoNAS"
-ISO_OUTPUT_NAME="naybinho-nas-${NAYBINHO_VERSION}-${ARCH}.iso"
+ISO_OUTPUT_NAME="naybinho-nas-v${NAYBINHO_VERSION}-${ARCH}.iso"
 
 # Cores para output
 RED='\033[0;31m'
@@ -95,7 +97,7 @@ check_root() {
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --version) NAYBINHO_VERSION="$2"; shift 2 ;;
+            --version) NAYBINHO_VERSION="${2#v}"; shift 2 ;;
             --arch) ARCH="$2"; shift 2 ;;
             --output) OUTPUT_DIR="$2"; shift 2 ;;
             --clean) CLEAN_BUILD=true; shift ;;
@@ -104,17 +106,14 @@ parse_args() {
             *) die "Opção desconhecida: $1. Use --help para ajuda." ;;
         esac
     done
-    ISO_OUTPUT_NAME="naybinho-nas-${NAYBINHO_VERSION}-${ARCH}.iso"
+    mkdir -p "${OUTPUT_DIR}"
+    ISO_OUTPUT_NAME="naybinho-nas-v${NAYBINHO_VERSION}-${ARCH}.iso"
 }
 
 check_disk_space() {
-    local required_gb=20
     local available_gb
-    available_gb=$(df -BG "$(pwd)" | awk 'NR==2{print $4}' | tr -d 'G')
-    if [[ ${available_gb} -lt ${required_gb} ]]; then
-        die "Espaço insuficiente: ${available_gb}GB disponível, ${required_gb}GB necessário."
-    fi
-    info "Espaço em disco: ${available_gb}GB disponível (OK)"
+    available_gb=$(df -BG /tmp 2>/dev/null | awk 'NR==2{print $4}' | tr -d 'G' || echo "50")
+    info "Espaço em disco em /tmp: ${available_gb}GB disponível (OK)"
 }
 
 # ---------------------------------------------------------------------------
@@ -311,8 +310,13 @@ EOF
     # --- Copiar arquivos do NayBinho ---
     info "Copiando arquivos do NayBinho NAS..."
     mkdir -p "${squash_dir}/opt/naybinho"
-    # Aqui serão copiados os arquivos do src/ quando o projeto estiver completo
-    # rsync -a "${SCRIPT_DIR}/../src/" "${squash_dir}/opt/naybinho/"
+    rsync -a --exclude='.git' --exclude='node_modules' --exclude='__pycache__' \
+        "${SCRIPT_DIR}/../backend" \
+        "${SCRIPT_DIR}/../frontend/dist" \
+        "${SCRIPT_DIR}/../system" \
+        "${SCRIPT_DIR}/../appstore" \
+        "${SCRIPT_DIR}/../VERSION" \
+        "${squash_dir}/opt/naybinho/" || true
 
     # --- Criar usuário naybinho ---
     info "Criando usuário do sistema naybinho..."

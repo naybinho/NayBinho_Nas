@@ -82,6 +82,14 @@ jobs:
             VERSION \
             README.md
 
+      - name: Liberar Espaço em Disco no Runner
+        run: |
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
       - name: Instalar Dependências de Criação de ISO
         run: |
           sudo apt-get update
@@ -92,6 +100,10 @@ jobs:
             squashfs-tools \
             mtools \
             dosfstools \
+            rsync \
+            debootstrap \
+            grub-efi-amd64-bin \
+            grub-pc-bin \
             curl \
             wget \
             coreutils
@@ -99,22 +111,8 @@ jobs:
       - name: Construir Imagem ISO do NayBinho NAS
         run: |
           chmod +x build/build-iso.sh
-          # Define versão no script
-          export NAYBINHO_VERSION="${VERSION}"
-          export OUTPUT_ISO="dist-release/naybinho-nas-v${VERSION}-amd64.iso"
-          
-          # Executa o build da ISO (se em ambiente CI simulado ou completo)
-          bash build/build-iso.sh || {
-            echo "Aviso: Gerando ISO de release otimizada para distribuição..."
-            mkdir -p iso_staging/boot/grub
-            cp build/grub.cfg iso_staging/boot/grub/
-            cp -r dist-release/naybinho-update-v${VERSION}.tar.gz iso_staging/
-            echo "NayBinho NAS v${VERSION} Live & Installer" > iso_staging/README.txt
-            xorriso -as mkisofs \
-              -r -V "NAYBINHO_NAS" \
-              -o "dist-release/naybinho-nas-v${VERSION}-amd64.iso" \
-              iso_staging/
-          }
+          mkdir -p dist-release
+          sudo -E bash build/build-iso.sh --version "${VERSION}" --output dist-release
 
       - name: Gerar Checksums SHA256 dos Artefatos
         run: |
