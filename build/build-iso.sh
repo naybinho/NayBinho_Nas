@@ -453,7 +453,6 @@ UNITEOF
         ufw allow 2049/tcp comment 'NFS' 2>/dev/null || true
         ufw allow 2049/udp comment 'NFS' 2>/dev/null || true
     " || true
-    "
 
     # --- Configurar MOTD ---
     info "Configurando MOTD..."
