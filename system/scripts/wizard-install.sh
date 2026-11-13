@@ -521,7 +521,6 @@ insmod gzio
 search --no-floppy --fs-uuid --set=root ${UUID_ROOT}
 
 menuentry "NayBinho NAS" --class naybinho --class gnu-linux --class gnu --class os {
-    recordfail
     insmod part_gpt
     insmod part_msdos
     insmod ext2
@@ -533,7 +532,6 @@ menuentry "NayBinho NAS" --class naybinho --class gnu-linux --class gnu --class 
 }
 
 menuentry "NayBinho NAS (Fallback)" --class naybinho --class gnu-linux --class gnu --class os {
-    recordfail
     insmod part_gpt
     insmod part_msdos
     insmod ext2
