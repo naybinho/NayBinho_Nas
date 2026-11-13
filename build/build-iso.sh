@@ -260,7 +260,12 @@ prepare_filesystem() {
     info "Squashfs identificado: ${TARGET_SQUASH_NAME}"
 
     info "Copiando conteúdo da ISO (estruturas de boot, EFI e kernel)..."
-    rsync -a --exclude="casper/${TARGET_SQUASH_NAME}" "${iso_mount}/" "${extract_dir}/"
+    rsync -a \
+        --exclude="casper/*.squashfs" \
+        --exclude="pool" \
+        --exclude="dists" \
+        "${iso_mount}/" "${extract_dir}/"
+    mkdir -p "${extract_dir}/casper"
 
     info "Extraindo sistema de arquivos (${TARGET_SQUASH_NAME})..."
     unsquashfs -f -d "${squash_dir}" "${TARGET_SQUASH}"
@@ -496,6 +501,10 @@ repack_squashfs() {
     local extract_dir="${BUILD_DIR}/iso-extract"
     local squash_dir="${BUILD_DIR}/squashfs-root"
     local squash_out="${extract_dir}/casper/${TARGET_SQUASH_NAME:-ubuntu-server-minimal.squashfs}"
+
+    info "Limpando arquivos legados e pacotes offline..."
+    rm -rf "${extract_dir}/pool" "${extract_dir}/dists" 2>/dev/null || true
+    rm -f "${extract_dir}/casper"/*.squashfs 2>/dev/null || true
 
     info "Gerando novo squashfs em ${squash_out}..."
     rm -f "${squash_out}"
