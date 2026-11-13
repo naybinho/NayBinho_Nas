@@ -340,6 +340,25 @@ perform_install() {
         --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","/cdrom/*","/isodevice/*"} \
         / "${TARGET_MOUNT}/" 2>/dev/null || true
 
+    # Garantir que kernel Linux e initramfs estejam presentes em /boot no sistema instalado
+    mkdir -p "${TARGET_MOUNT}/boot"
+    if ! ls "${TARGET_MOUNT}/boot"/vmlinuz* 1>/dev/null 2>&1; then
+        for k in /boot/vmlinuz* /cdrom/casper/vmlinuz; do
+            if [[ -f "${k}" ]]; then
+                cp "${k}" "${TARGET_MOUNT}/boot/vmlinuz-$(uname -r 2>/dev/null || echo generic)" 2>/dev/null || true
+                break
+            fi
+        done
+    fi
+    if ! ls "${TARGET_MOUNT}/boot"/initrd* 1>/dev/null 2>&1; then
+        for i in /boot/initrd* /cdrom/casper/initrd; do
+            if [[ -f "${i}" ]]; then
+                cp "${i}" "${TARGET_MOUNT}/boot/initrd.img-$(uname -r 2>/dev/null || echo generic)" 2>/dev/null || true
+                break
+            fi
+        done
+    fi
+
     # Passo 7: Configurar fstab e identidade
     echo 75
     echo "XXX"

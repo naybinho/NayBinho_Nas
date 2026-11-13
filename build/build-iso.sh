@@ -43,7 +43,7 @@ CLEAN_BUILD=false
 NO_DOWNLOAD=false
 mkdir -p "${OUTPUT_DIR}" "${CACHE_DIR}"
 LOG_FILE="${OUTPUT_DIR}/build-$(date +%Y%m%d-%H%M%S).log"
-ISO_LABEL="NayBinhoNAS"
+ISO_LABEL="NAYBINHO_NAS"
 ISO_OUTPUT_NAME="naybinho-nas-v${NAYBINHO_VERSION}-${ARCH}.iso"
 
 # Cores para output
@@ -790,8 +790,8 @@ EOF
 
     # Atualizar checksums internos da ISO
     info "Recalculando checksums internos..."
-    (cd "${extract_dir}" && find . -type f ! -name "md5sum.txt" ! -path "./.git/*" \
-        -exec md5sum {} \; > md5sum.txt)
+    (cd "${extract_dir}" && find . -type f ! -name "md5sum.txt" ! -path "./.git/*" ! -name "boot.catalog" \
+        -exec md5sum {} + > md5sum.txt)
 
     info "Bootloader configurado."
 }
@@ -810,7 +810,7 @@ generate_iso() {
     local mkiso_cmd="${BUILD_DIR}/run_xorriso.sh"
     echo "#!/bin/bash" > "${mkiso_cmd}"
     echo "set -e" >> "${mkiso_cmd}"
-    echo -n "xorriso -as mkisofs " >> "${mkiso_cmd}"
+    echo -n "xorriso -as mkisofs -r -J -l -iso-level 3 " >> "${mkiso_cmd}"
     xorriso -indev "${orig_iso}" -report_el_torito as_mkisofs 2>/dev/null | tr '\n' ' ' >> "${mkiso_cmd}"
     echo " -V '${ISO_LABEL}' -o '${iso_out}' '${extract_dir}'" >> "${mkiso_cmd}"
 
