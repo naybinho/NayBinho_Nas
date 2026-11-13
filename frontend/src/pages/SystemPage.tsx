@@ -320,13 +320,13 @@ export default function SystemPage() {
             </div>
 
             {releaseInfo?.release_notes && (
-              <div className="mt-3 p-3 bg-slate-950/60 rounded-lg border border-slate-800/80 text-xs text-slate-300">
-                <p className="font-semibold text-slate-200 mb-1 flex items-center gap-1">
-                  <FileText className="w-3.5 h-3.5 text-naybinho-accent" /> Notas da Versão:
+              <div className="mt-3 p-3 bg-slate-950/70 rounded-lg border border-slate-800 text-xs text-slate-300">
+                <p className="font-semibold text-slate-200 mb-2 flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-cyan-400" /> Detalhes da Versão (Novidades, Melhorias e Correções):
                 </p>
-                <p className="text-[11px] text-naybinho-muted line-clamp-3 whitespace-pre-line">
+                <div className="text-[12px] leading-relaxed text-slate-300 max-h-64 overflow-y-auto pr-1 whitespace-pre-line space-y-2">
                   {releaseInfo.release_notes}
-                </p>
+                </div>
               </div>
             )}
           </div>

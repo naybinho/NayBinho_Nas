@@ -106,7 +106,7 @@ class UpdateService:
         iso_asset = None
         update_asset = None
 
-        github_repo = getattr(settings, "github_repo", "naybinho/nas")
+        github_repo = getattr(settings, "github_repo", "naybinho/NayBinho_Nas")
         api_url = f"https://api.github.com/repos/{github_repo}/releases/latest"
 
         try:
@@ -238,7 +238,7 @@ class UpdateService:
 
                     if not update_url:
                         # Fallback: consultar última release novamente se não houver asset cacheado
-                        github_repo = getattr(settings, "github_repo", "naybinho/nas")
+                        github_repo = getattr(settings, "github_repo", "naybinho/NayBinho_Nas")
                         update_url = f"https://github.com/{github_repo}/archive/refs/heads/main.tar.gz"
 
                     self._set_progress("downloading", 35, f"Baixando nova versão do sistema de {update_url}...")

@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     default_admin_password: str = "naybinho"  # Must be changed on first login
 
     # ── Update & Releases ────────────────────────────────────────────────────
-    github_repo: str = "naybinho/nas"
+    github_repo: str = "naybinho/NayBinho_Nas"
     auto_update_check_interval_hours: int = 6
     version_file: Path = Path("/opt/naybinho/VERSION")
 
