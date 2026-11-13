@@ -1,0 +1,64 @@
+[Unit]
+Description=NayBinho NAS Backend (FastAPI/Uvicorn)
+Documentation=https://github.com/naybinho/nas
+After=network.target network-online.target
+Wants=network-online.target
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=exec
+User=naybinho
+Group=naybinho
+WorkingDirectory=/opt/naybinho/backend
+RuntimeDirectory=naybinho
+RuntimeDirectoryMode=0755
+
+# Ambiente
+Environment="PATH=/opt/naybinho/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/opt/naybinho/backend"
+Environment="NAYBINHO_ENV=production"
+EnvironmentFile=-/opt/naybinho/config/naybinho.env
+
+# Comando de inicialização
+ExecStart=/opt/naybinho/venv/bin/uvicorn main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 2 \
+    --log-level info \
+    --access-log \
+    --log-config /opt/naybinho/config/log_config.json
+
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart automático
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Segurança
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/naybinho/data /opt/naybinho/logs /var/log/naybinho /run/naybinho
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Capabilities necessárias para leitura de hardware
+AmbientCapabilities=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_DAC_READ_SEARCH
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=naybinho-backend
+
+# Timeout
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

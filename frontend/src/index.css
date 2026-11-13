@@ -1,0 +1,81 @@
+// NayBinho NAS — Global CSS (Tailwind directives + CSS variables)
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 7%;       /* #0F172A */
+    --foreground: 213 31% 91%;      /* #E2E8F0 */
+    --card: 222 47% 15%;            /* #1E293B */
+    --card-foreground: 213 31% 91%;
+    --popover: 222 47% 12%;
+    --popover-foreground: 213 31% 91%;
+    --primary: 221 83% 40%;         /* #1E40AF */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 32% 25%;
+    --secondary-foreground: 213 31% 91%;
+    --muted: 217 32% 25%;
+    --muted-foreground: 215 20% 60%;
+    --accent: 217 91% 60%;          /* #3B82F6 */
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 86% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 217 32% 25%;
+    --input: 217 32% 20%;
+    --ring: 221 83% 53%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+
+  body {
+    @apply bg-naybinho-bg text-naybinho-text antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { @apply bg-naybinho-bg; }
+  ::-webkit-scrollbar-thumb { @apply bg-naybinho-border rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-naybinho-muted; }
+}
+
+@layer components {
+  /* Status badge variants */
+  .badge-healthy  { @apply bg-emerald-900/40 text-emerald-400 border border-emerald-700/50; }
+  .badge-warning  { @apply bg-amber-900/40   text-amber-400   border border-amber-700/50; }
+  .badge-error    { @apply bg-red-900/40     text-red-400     border border-red-700/50; }
+  .badge-info     { @apply bg-blue-900/40    text-blue-400    border border-blue-700/50; }
+  .badge-muted    { @apply bg-slate-800      text-slate-400   border border-slate-700; }
+
+  /* Glass card */
+  .glass-card {
+    @apply bg-naybinho-card/80 backdrop-blur border border-naybinho-border rounded-xl;
+  }
+
+  /* Animated gradient border */
+  .gradient-border {
+    position: relative;
+    @apply rounded-xl;
+    &::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      background: linear-gradient(135deg, #1E40AF, #3B82F6, #1E40AF);
+      background-size: 200% 200%;
+      animation: gradientShift 4s ease infinite;
+      z-index: -1;
+    }
+  }
+
+  @keyframes gradientShift {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+}

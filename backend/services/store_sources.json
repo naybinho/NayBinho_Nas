@@ -1,0 +1,62 @@
+[
+  {
+    "id": "naybinho_official",
+    "name": "NayBinho Oficial",
+    "url": "local",
+    "description": "Loja nativa oficial otimizada para o NayBinho NAS com suporte a hardware, transcodificação e alta performance.",
+    "enabled": true,
+    "type": "native",
+    "icon": "⚡",
+    "last_sync": "2026-11-13T09:00:00Z",
+    "app_count": 107,
+    "status": "ready"
+  },
+  {
+    "id": "big_bear_casaos_zip",
+    "name": "BigBear CasaOS (GitHub Zip)",
+    "url": "https://github.com/bigbeartechworld/big-bear-casaos/archive/refs/heads/master.zip",
+    "description": "Repositório completo BigBear CasaOS extraído diretamente do arquivo master do GitHub (com centenas de apps e compose stacks atualizados).",
+    "enabled": true,
+    "type": "casaos_zip",
+    "icon": "🐻",
+    "last_sync": null,
+    "app_count": 0,
+    "status": "pending_sync"
+  },
+  {
+    "id": "play_store",
+    "name": "CasaOS Play Store",
+    "url": "https://play.cuse.eu.org/store.json",
+    "description": "Repositório comunitário Play Store com centenas de aplicações, utilitários e serviços para Home Lab.",
+    "enabled": true,
+    "type": "casaos",
+    "icon": "🎮",
+    "last_sync": null,
+    "app_count": 0,
+    "status": "pending_sync"
+  },
+  {
+    "id": "big_bear_casaos",
+    "name": "BigBear CasaOS Store (CDN)",
+    "url": "https://cdn.jsdelivr.net/gh/bigbeartechworld/big-bear-casaos@gh-pages/store.json",
+    "description": "Grande biblioteca de aplicações mantida pela comunidade BigBearTechWorld com foco em automação e servidores.",
+    "enabled": true,
+    "type": "casaos",
+    "icon": "📦",
+    "last_sync": null,
+    "app_count": 0,
+    "status": "pending_sync"
+  },
+  {
+    "id": "zima_store",
+    "name": "Zima AppStore",
+    "url": "https://chicohaager.github.io/zima-appstore/store.json",
+    "description": "Repositório de aplicações curadas para ZimaOS / CasaOS mantido por Chico Haager.",
+    "enabled": true,
+    "type": "casaos",
+    "icon": "❄️",
+    "last_sync": null,
+    "app_count": 0,
+    "status": "pending_sync"
+  }
+]

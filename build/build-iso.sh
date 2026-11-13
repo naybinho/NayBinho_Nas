@@ -1,0 +1,600 @@
+#!/usr/bin/env bash
+# =============================================================================
+# build-iso.sh — NayBinho NAS ISO Builder
+# =============================================================================
+# Gera a ISO customizada do NayBinho NAS baseada em Ubuntu 26.04.1 LTS.
+#
+# Uso:
+#   sudo bash build-iso.sh [opções]
+#
+# Opções:
+#   --version <ver>   Versão da ISO (padrão: 1.0.0)
+#   --arch <arch>     Arquitetura: amd64 | arm64 (padrão: amd64)
+#   --output <dir>    Diretório de saída (padrão: ./output)
+#   --clean           Limpa o ambiente de build antes de começar
+#   --no-download     Não baixar Ubuntu base se já existir em cache
+#   --help            Exibe esta ajuda
+#
+# Pré-requisitos (instalados automaticamente se ausentes):
+#   live-build, squashfs-tools, genisoimage / xorriso,
+#   debootstrap, isolinux/syslinux, grub-efi-amd64-bin
+#
+# Resultado:
+#   output/naybinho-nas-<version>-<arch>.iso
+# =============================================================================
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Configurações padrão
+# ---------------------------------------------------------------------------
+NAYBINHO_VERSION="${NAYBINHO_VERSION:-1.0.0}"
+ARCH="${ARCH:-amd64}"
+UBUNTU_CODENAME="plucky"           # Ubuntu 26.04.1 LTS codinome
+UBUNTU_VERSION="26.04.1"
+UBUNTU_BASE_URL="https://releases.ubuntu.com/${UBUNTU_VERSION}"
+UBUNTU_ISO_NAME="ubuntu-${UBUNTU_VERSION}-live-server-${ARCH}.iso"
+OUTPUT_DIR="$(pwd)/output"
+CACHE_DIR="$(pwd)/.build-cache"
+BUILD_DIR="$(pwd)/.build-work"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLEAN_BUILD=false
+NO_DOWNLOAD=false
+LOG_FILE="${OUTPUT_DIR}/build-$(date +%Y%m%d-%H%M%S).log"
+ISO_LABEL="NayBinhoNAS"
+ISO_OUTPUT_NAME="naybinho-nas-${NAYBINHO_VERSION}-${ARCH}.iso"
+
+# Cores para output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# ---------------------------------------------------------------------------
+# Funções utilitárias
+# ---------------------------------------------------------------------------
+
+log() { echo -e "${CYAN}[$(date '+%H:%M:%S')]${NC} $*" | tee -a "${LOG_FILE}"; }
+info() { echo -e "${GREEN}[INFO]${NC} $*" | tee -a "${LOG_FILE}"; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $*" | tee -a "${LOG_FILE}"; }
+error() { echo -e "${RED}[ERROR]${NC} $*" | tee -a "${LOG_FILE}"; }
+step() { echo -e "\n${BOLD}${BLUE}══════════════════════════════════════════════${NC}" | tee -a "${LOG_FILE}"
+         echo -e "${BOLD}${BLUE}  $*${NC}" | tee -a "${LOG_FILE}"
+         echo -e "${BOLD}${BLUE}══════════════════════════════════════════════${NC}" | tee -a "${LOG_FILE}"; }
+die() { error "$*"; exit 1; }
+
+usage() {
+    cat <<EOF
+NayBinho NAS ISO Builder v${NAYBINHO_VERSION}
+
+Uso: sudo bash build-iso.sh [opções]
+
+Opções:
+  --version <ver>   Versão da ISO        (padrão: ${NAYBINHO_VERSION})
+  --arch <arch>     amd64 | arm64        (padrão: ${ARCH})
+  --output <dir>    Diretório de saída   (padrão: ./output)
+  --clean           Limpa build anterior antes de começar
+  --no-download     Reutiliza o ISO Ubuntu em cache (se existir)
+  --help            Exibe esta mensagem
+
+Exemplo:
+  sudo bash build-iso.sh --version 1.0.0 --arch amd64 --output /tmp/naybinho
+
+EOF
+}
+
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        die "Este script deve ser executado como root (use: sudo bash build-iso.sh)"
+    fi
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --version) NAYBINHO_VERSION="$2"; shift 2 ;;
+            --arch) ARCH="$2"; shift 2 ;;
+            --output) OUTPUT_DIR="$2"; shift 2 ;;
+            --clean) CLEAN_BUILD=true; shift ;;
+            --no-download) NO_DOWNLOAD=true; shift ;;
+            --help|-h) usage; exit 0 ;;
+            *) die "Opção desconhecida: $1. Use --help para ajuda." ;;
+        esac
+    done
+    ISO_OUTPUT_NAME="naybinho-nas-${NAYBINHO_VERSION}-${ARCH}.iso"
+}
+
+check_disk_space() {
+    local required_gb=20
+    local available_gb
+    available_gb=$(df -BG "$(pwd)" | awk 'NR==2{print $4}' | tr -d 'G')
+    if [[ ${available_gb} -lt ${required_gb} ]]; then
+        die "Espaço insuficiente: ${available_gb}GB disponível, ${required_gb}GB necessário."
+    fi
+    info "Espaço em disco: ${available_gb}GB disponível (OK)"
+}
+
+# ---------------------------------------------------------------------------
+# Passo 1 — Verificar e instalar dependências
+# ---------------------------------------------------------------------------
+install_dependencies() {
+    step "Verificando e instalando dependências"
+
+    local packages=(
+        live-build
+        squashfs-tools
+        xorriso
+        isolinux
+        syslinux-utils
+        debootstrap
+        grub-efi-amd64-bin
+        grub-pc-bin
+        mtools
+        dosfstools
+        gawk
+        rsync
+        wget
+        curl
+        jq
+        git
+        apt-utils
+        gnupg2
+        ca-certificates
+    )
+
+    info "Atualizando lista de pacotes..."
+    apt-get update -qq
+
+    info "Instalando dependências de build..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
+
+    info "Dependências instaladas com sucesso."
+}
+
+# ---------------------------------------------------------------------------
+# Passo 2 — Preparar diretórios
+# ---------------------------------------------------------------------------
+prepare_dirs() {
+    step "Preparando diretórios de trabalho"
+
+    if [[ "${CLEAN_BUILD}" == "true" ]]; then
+        warn "Limpando build anterior..."
+        rm -rf "${BUILD_DIR}"
+    fi
+
+    mkdir -p "${OUTPUT_DIR}"
+    mkdir -p "${CACHE_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    mkdir -p "${LOG_FILE%/*}"
+    touch "${LOG_FILE}"
+
+    info "Diretórios prontos:"
+    info "  Build:  ${BUILD_DIR}"
+    info "  Cache:  ${CACHE_DIR}"
+    info "  Output: ${OUTPUT_DIR}"
+}
+
+# ---------------------------------------------------------------------------
+# Passo 3 — Baixar ISO Ubuntu base
+# ---------------------------------------------------------------------------
+download_ubuntu_iso() {
+    step "Obtendo Ubuntu ${UBUNTU_VERSION} LTS base"
+
+    local iso_cache="${CACHE_DIR}/${UBUNTU_ISO_NAME}"
+    local checksum_url="${UBUNTU_BASE_URL}/SHA256SUMS"
+    local checksum_cache="${CACHE_DIR}/SHA256SUMS"
+
+    if [[ "${NO_DOWNLOAD}" == "true" ]] && [[ -f "${iso_cache}" ]]; then
+        info "Reutilizando ISO em cache: ${iso_cache}"
+        return 0
+    fi
+
+    if [[ ! -f "${iso_cache}" ]]; then
+        info "Baixando Ubuntu ${UBUNTU_VERSION} LTS (${ARCH})..."
+        info "URL: ${UBUNTU_BASE_URL}/${UBUNTU_ISO_NAME}"
+        wget -c --progress=bar:force \
+            "${UBUNTU_BASE_URL}/${UBUNTU_ISO_NAME}" \
+            -O "${iso_cache}" 2>&1 | tee -a "${LOG_FILE}"
+    else
+        info "ISO encontrada em cache: ${iso_cache}"
+    fi
+
+    info "Baixando checksums para verificação..."
+    wget -q "${checksum_url}" -O "${checksum_cache}"
+
+    info "Verificando integridade da ISO..."
+    local expected_hash
+    expected_hash=$(grep "${UBUNTU_ISO_NAME}" "${checksum_cache}" | awk '{print $1}')
+
+    if [[ -z "${expected_hash}" ]]; then
+        warn "Não foi possível verificar o checksum (arquivo não encontrado nos checksums)."
+    else
+        local actual_hash
+        actual_hash=$(sha256sum "${iso_cache}" | awk '{print $1}')
+        if [[ "${actual_hash}" == "${expected_hash}" ]]; then
+            info "✅ Checksum verificado com sucesso."
+        else
+            die "❌ Checksum inválido! ISO pode estar corrompida. Delete ${iso_cache} e tente novamente."
+        fi
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Passo 4 — Extrair e preparar sistema de arquivos
+# ---------------------------------------------------------------------------
+prepare_filesystem() {
+    step "Extraindo e preparando sistema de arquivos"
+
+    local iso_cache="${CACHE_DIR}/${UBUNTU_ISO_NAME}"
+    local iso_mount="${BUILD_DIR}/iso-mount"
+    local extract_dir="${BUILD_DIR}/iso-extract"
+    local squash_dir="${BUILD_DIR}/squashfs-root"
+
+    mkdir -p "${iso_mount}" "${extract_dir}" "${squash_dir}"
+
+    info "Montando ISO Ubuntu..."
+    mount -o loop,ro "${iso_cache}" "${iso_mount}"
+    trap 'umount ${iso_mount} 2>/dev/null; true' EXIT
+
+    info "Copiando conteúdo da ISO..."
+    rsync -a --exclude=/casper/filesystem.squashfs "${iso_mount}/" "${extract_dir}/"
+
+    info "Extraindo sistema de arquivos squashfs (pode demorar alguns minutos)..."
+    unsquashfs -f -d "${squash_dir}" "${iso_mount}/casper/filesystem.squashfs"
+
+    umount "${iso_mount}"
+    trap - EXIT
+
+    info "Sistema de arquivos extraído em: ${squash_dir}"
+}
+
+# ---------------------------------------------------------------------------
+# Passo 5 — Customizar o sistema de arquivos (chroot)
+# ---------------------------------------------------------------------------
+customize_filesystem() {
+    step "Customizando sistema de arquivos NayBinho"
+
+    local squash_dir="${BUILD_DIR}/squashfs-root"
+
+    # Montar filesystems necessários para chroot
+    info "Preparando ambiente chroot..."
+    mount --bind /dev     "${squash_dir}/dev"
+    mount --bind /dev/pts "${squash_dir}/dev/pts"
+    mount --bind /proc    "${squash_dir}/proc"
+    mount --bind /sys     "${squash_dir}/sys"
+    mount --bind /run     "${squash_dir}/run"
+
+    # DNS para o chroot
+    cp /etc/resolv.conf "${squash_dir}/etc/resolv.conf"
+
+    # Função para executar comandos no chroot
+    chroot_exec() {
+        chroot "${squash_dir}" /bin/bash -c "$*" 2>&1 | tee -a "${LOG_FILE}"
+    }
+
+    # --- Atualizar sistema base ---
+    info "Atualizando sistema base..."
+    chroot_exec "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq"
+
+    # --- Instalar pacotes NayBinho ---
+    info "Instalando pacotes NayBinho NAS..."
+    chroot_exec "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        $(grep -v '^#' "${SCRIPT_DIR}/packages.list" | grep -v '^$' | tr '\n' ' ')"
+
+    # --- Instalar Docker Engine ---
+    info "Instalando Docker Engine..."
+    chroot_exec "
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+        echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME} stable' \
+            > /etc/apt/sources.list.d/docker.list
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    "
+
+    # --- Configurar hostname e identidade ---
+    info "Configurando identidade do sistema..."
+    echo "naybinho-nas" > "${squash_dir}/etc/hostname"
+    cat > "${squash_dir}/etc/hosts" <<EOF
+127.0.0.1   localhost
+127.0.1.1   naybinho-nas naybinho-nas.local
+::1         localhost ip6-localhost ip6-loopback
+ff02::1     ip6-allnodes
+ff02::2     ip6-allrouters
+EOF
+
+    # --- Copiar arquivos do NayBinho ---
+    info "Copiando arquivos do NayBinho NAS..."
+    mkdir -p "${squash_dir}/opt/naybinho"
+    # Aqui serão copiados os arquivos do src/ quando o projeto estiver completo
+    # rsync -a "${SCRIPT_DIR}/../src/" "${squash_dir}/opt/naybinho/"
+
+    # --- Criar usuário naybinho ---
+    info "Criando usuário do sistema naybinho..."
+    chroot_exec "
+        useradd -r -s /usr/sbin/nologin -d /opt/naybinho -c 'NayBinho NAS System' naybinho 2>/dev/null || true
+        usermod -aG docker naybinho 2>/dev/null || true
+    "
+
+    # --- Instalar e configurar serviços systemd ---
+    info "Configurando serviços systemd..."
+
+    cat > "${squash_dir}/etc/systemd/system/naybinho-backend.service" <<'UNITEOF'
+[Unit]
+Description=NayBinho NAS Backend API
+After=network-online.target docker.service redis.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=naybinho
+WorkingDirectory=/opt/naybinho/backend
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8081 --workers 2
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=naybinho-backend
+Environment=PYTHONUNBUFFERED=1
+Environment=NAYBINHO_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+
+    cat > "${squash_dir}/etc/systemd/system/naybinho-frontend.service" <<'UNITEOF'
+[Unit]
+Description=NayBinho NAS Frontend (Nginx)
+After=network-online.target naybinho-backend.service
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStartPre=/usr/sbin/nginx -t
+ExecStart=/usr/sbin/nginx
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s QUIT $MAINPID
+PrivateTmp=true
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+
+    cat > "${squash_dir}/etc/systemd/system/naybinho-storage.service" <<'UNITEOF'
+[Unit]
+Description=NayBinho NAS Storage Initialization
+After=local-fs.target
+Before=naybinho-backend.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/naybinho/scripts/storage-init.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=naybinho-storage
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+
+    # Habilitar serviços
+    chroot_exec "
+        systemctl enable docker
+        systemctl enable redis-server
+        systemctl enable naybinho-backend.service
+        systemctl enable naybinho-frontend.service
+        systemctl enable naybinho-storage.service
+        systemctl enable fail2ban
+        systemctl enable smartd
+        systemctl enable mdadm
+        systemctl enable ufw
+    "
+
+    # --- Configurar GRUB ---
+    info "Configurando GRUB..."
+    cp "${SCRIPT_DIR}/grub.cfg" "${squash_dir}/etc/default/grub.d/naybinho.cfg" 2>/dev/null || true
+
+    # --- Configurar UFW (firewall) ---
+    info "Configurando firewall UFW..."
+    chroot_exec "
+        ufw default deny incoming
+        ufw default allow outgoing
+        ufw allow 22/tcp comment 'SSH'
+        ufw allow 8080/tcp comment 'NayBinho Dashboard'
+        ufw allow 8081/tcp comment 'NayBinho API'
+        ufw allow 139/tcp comment 'Samba'
+        ufw allow 445/tcp comment 'Samba'
+        ufw allow 2049/tcp comment 'NFS'
+        ufw allow 2049/udp comment 'NFS'
+    "
+
+    # --- Configurar MOTD ---
+    info "Configurando MOTD..."
+    cat > "${squash_dir}/etc/motd" <<'MOTDEOF'
+
+  ███╗   ██╗ █████╗ ██╗   ██╗██████╗ ██╗███╗   ██╗██╗  ██╗ ██████╗
+  ████╗  ██║██╔══██╗╚██╗ ██╔╝██╔══██╗██║████╗  ██║██║  ██║██╔═══██╗
+  ██╔██╗ ██║███████║ ╚████╔╝ ██████╔╝██║██╔██╗ ██║███████║██║   ██║
+  ██║╚██╗██║██╔══██║  ╚██╔╝  ██╔══██╗██║██║╚██╗██║██╔══██║██║   ██║
+  ██║ ╚████║██║  ██║   ██║   ██████╔╝██║██║ ╚████║██║  ██║╚██████╔╝
+  ╚═╝  ╚═══╝╚═╝  ╚═╝   ╚═╝   ╚═════╝ ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝
+
+  NayBinho NAS — Home Lab OS
+  Dashboard: http://<IP>:8080
+  Docs:      https://naybinho.io/docs
+
+MOTDEOF
+
+    # --- Limpeza no chroot ---
+    info "Limpando caches no chroot..."
+    chroot_exec "apt-get clean && apt-get autoremove -y && rm -rf /tmp/* /var/tmp/*"
+    rm -f "${squash_dir}/etc/resolv.conf"
+
+    # Desmontar filesystems do chroot
+    info "Desmontando ambiente chroot..."
+    umount "${squash_dir}/run"  2>/dev/null || true
+    umount "${squash_dir}/sys"  2>/dev/null || true
+    umount "${squash_dir}/proc" 2>/dev/null || true
+    umount "${squash_dir}/dev/pts" 2>/dev/null || true
+    umount "${squash_dir}/dev"  2>/dev/null || true
+
+    info "Customização do filesystem concluída."
+}
+
+# ---------------------------------------------------------------------------
+# Passo 6 — Recompactar squashfs
+# ---------------------------------------------------------------------------
+repack_squashfs() {
+    step "Recompactando sistema de arquivos (squashfs)"
+
+    local extract_dir="${BUILD_DIR}/iso-extract"
+    local squash_dir="${BUILD_DIR}/squashfs-root"
+    local squash_out="${extract_dir}/casper/filesystem.squashfs"
+
+    info "Gerando novo squashfs (compressão xz — pode demorar 10-20 minutos)..."
+    rm -f "${squash_out}"
+    mksquashfs "${squash_dir}" "${squash_out}" \
+        -comp xz \
+        -Xdict-size 100% \
+        -wildcards \
+        -ef "${SCRIPT_DIR}/../.build-excludes" \
+        2>&1 | tee -a "${LOG_FILE}" || \
+    mksquashfs "${squash_dir}" "${squash_out}" \
+        -comp xz \
+        2>&1 | tee -a "${LOG_FILE}"
+
+    info "Atualizando manifest do filesystem..."
+    chroot "${squash_dir}" dpkg-query -W --showformat='${Package} ${Version}\n' \
+        > "${extract_dir}/casper/filesystem.manifest" 2>/dev/null || true
+
+    local squash_size
+    squash_size=$(du -sx --block-size=1 "${squash_dir}" | cut -f1)
+    printf "%d" "${squash_size}" > "${extract_dir}/casper/filesystem.size"
+
+    info "squashfs gerado: $(du -sh "${squash_out}" | cut -f1)"
+}
+
+# ---------------------------------------------------------------------------
+# Passo 7 — Configurar bootloader e metadata
+# ---------------------------------------------------------------------------
+configure_bootloader() {
+    step "Configurando bootloader e metadados da ISO"
+
+    local extract_dir="${BUILD_DIR}/iso-extract"
+
+    # Copiar GRUB customizado
+    info "Configurando GRUB NayBinho..."
+    mkdir -p "${extract_dir}/boot/grub"
+    cp "${SCRIPT_DIR}/grub.cfg" "${extract_dir}/boot/grub/grub.cfg"
+
+    # Atualizar metadados
+    info "Atualizando metadados da ISO..."
+    cat > "${extract_dir}/.disk/info" <<EOF
+NayBinho NAS ${NAYBINHO_VERSION} "${ARCH}" - Release $(date +%Y%m%d)
+EOF
+
+    cat > "${extract_dir}/.disk/release_notes_url" <<EOF
+https://naybinho.io/releases/${NAYBINHO_VERSION}
+EOF
+
+    # Atualizar checksums internos da ISO
+    info "Recalculando checksums internos..."
+    (cd "${extract_dir}" && find . -type f ! -name "md5sum.txt" ! -path "./.git/*" \
+        -exec md5sum {} \; > md5sum.txt)
+
+    info "Bootloader configurado."
+}
+
+# ---------------------------------------------------------------------------
+# Passo 8 — Gerar ISO final
+# ---------------------------------------------------------------------------
+generate_iso() {
+    step "Gerando ISO final: ${ISO_OUTPUT_NAME}"
+
+    local extract_dir="${BUILD_DIR}/iso-extract"
+    local iso_out="${OUTPUT_DIR}/${ISO_OUTPUT_NAME}"
+
+    info "Criando ISO com xorriso (suporte UEFI + BIOS)..."
+
+    xorriso -as mkisofs \
+        -iso-level 3 \
+        -full-iso9660-filenames \
+        -volid "${ISO_LABEL}" \
+        -output "${iso_out}" \
+        -eltorito-boot boot/grub/i386-pc/eltorito.img \
+        -no-emul-boot \
+        -boot-load-size 4 \
+        -boot-info-table \
+        --efi-boot boot/grub/efi.img \
+        -efi-boot-part \
+        --efi-boot-image \
+        --protective-msdos-label \
+        -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
+        "${extract_dir}" \
+        2>&1 | tee -a "${LOG_FILE}"
+
+    info "Calculando checksum da ISO gerada..."
+    sha256sum "${iso_out}" | tee "${iso_out}.sha256"
+
+    local iso_size
+    iso_size=$(du -sh "${iso_out}" | cut -f1)
+    info "✅ ISO gerada com sucesso!"
+    info "   Arquivo: ${iso_out}"
+    info "   Tamanho: ${iso_size}"
+    info "   SHA256:  $(cat "${iso_out}.sha256" | awk '{print $1}')"
+}
+
+# ---------------------------------------------------------------------------
+# Passo 9 — Resumo final
+# ---------------------------------------------------------------------------
+print_summary() {
+    local iso_out="${OUTPUT_DIR}/${ISO_OUTPUT_NAME}"
+    echo ""
+    echo -e "${BOLD}${GREEN}╔════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${GREEN}║         NayBinho NAS — Build Concluído!            ║${NC}"
+    echo -e "${BOLD}${GREEN}╚════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${BOLD}ISO:${NC}     ${iso_out}"
+    echo -e "  ${BOLD}SHA256:${NC}  ${iso_out}.sha256"
+    echo -e "  ${BOLD}Log:${NC}     ${LOG_FILE}"
+    echo ""
+    echo -e "  ${BOLD}Para gravar em pendrive:${NC}"
+    echo -e "  sudo dd if=${iso_out} of=/dev/sdX bs=4M status=progress"
+    echo ""
+    echo -e "  ${BOLD}Para testar em QEMU:${NC}"
+    echo -e "  qemu-system-x86_64 -m 2048 -cdrom ${iso_out} -boot d"
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+main() {
+    parse_args "$@"
+    check_root
+    check_disk_space
+    prepare_dirs
+
+    log "🚀 Iniciando build NayBinho NAS v${NAYBINHO_VERSION} (${ARCH})"
+    log "   Ubuntu base: ${UBUNTU_VERSION} LTS (${UBUNTU_CODENAME})"
+    log "   Saída: ${OUTPUT_DIR}/${ISO_OUTPUT_NAME}"
+
+    install_dependencies
+    download_ubuntu_iso
+    prepare_filesystem
+    customize_filesystem
+    repack_squashfs
+    configure_bootloader
+    generate_iso
+    print_summary
+}
+
+main "$@"

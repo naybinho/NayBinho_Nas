@@ -1,0 +1,21 @@
+[Unit]
+Description=NayBinho NAS Daily Update Check Timer
+Documentation=https://github.com/naybinho/nas
+Requires=naybinho-update.service
+
+[Timer]
+# Executa todos os dias às 03:00 da madrugada
+OnCalendar=daily
+OnCalendar=*-*-* 03:00:00
+
+# Adiciona variação aleatória de até 1 hora para não sobrecarregar servidores
+RandomizedDelaySec=3600
+
+# Se o sistema estava desligado na hora agendada, executa assim que ligar
+Persistent=true
+
+# Aguarda rede estar disponível
+Unit=naybinho-update.service
+
+[Install]
+WantedBy=timers.target

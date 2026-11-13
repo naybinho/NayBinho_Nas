@@ -1,0 +1,43 @@
+# NayBinho NAS - Backend Requirements
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.12
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+pydantic==2.10.1
+pydantic-settings==2.6.1
+
+# System monitoring
+psutil==6.1.0
+
+# Docker SDK
+docker==7.1.0
+
+# Storage / RAID
+py-mdstat==1.0.3
+pySMART==1.4.1
+
+# Network
+netifaces==0.11.0
+ipaddress==1.0.23
+
+# Async tools
+httpx==0.27.2
+aiofiles==24.1.0
+aiohttp==3.11.6
+
+# ZFS bindings (optional, falls back to subprocess)
+# libzfs-python  # Install manually if available on the system
+
+# Utilities
+pyyaml==6.0.2
+orjson==3.10.11
+python-dateutil==2.9.0.post0
+croniter==3.0.3
+apscheduler==3.10.4
+click==8.1.7
+rich==13.9.4
+loguru==0.7.2
+
+# Config
+python-dotenv==1.0.1

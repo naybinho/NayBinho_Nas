@@ -1,0 +1,57 @@
+# =====================================================================
+# NayBinho NAS - Template Base Docker Compose
+# =====================================================================
+# Este template define os padrões arquiteturais de containers do NayBinho NAS:
+# - Usuário/Grupo não-root mapeados (PUID=${PUID:-1000}, PGID=${PGID:-1000})
+# - Fuso horário unificado (TZ=${TZ:-America/Sao_Paulo})
+# - Armazenamento persistente no pool ZFS: ${APP_STORAGE_DIR:-/tank/appdata}/${APP_NAME}
+# - Rede bridge gerenciada 'naybinho_default'
+# - Labels para descoberta automática na UI e integração de Proxy Reverso
+# =====================================================================
+
+services:
+  app:
+    image: ${IMAGE_NAME}:${IMAGE_TAG:-latest}
+    container_name: naybinho-${APP_NAME}
+    hostname: ${APP_NAME}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - naybinho_network
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-America/Sao_Paulo}
+    volumes:
+      - ${APP_STORAGE_DIR:-/tank/appdata}/${APP_NAME}/config:/config
+      - ${APP_STORAGE_DIR:-/tank/appdata}/${APP_NAME}/data:/data
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "${HOST_PORT:-8080}:${CONTAINER_PORT:-8080}"
+    labels:
+      - "naybinho.managed=true"
+      - "naybinho.app.id=${APP_ID}"
+      - "naybinho.app.name=${APP_NAME}"
+      - "naybinho.app.category=${APP_CATEGORY}"
+      - "naybinho.app.port=${HOST_PORT:-8080}"
+      - "naybinho.app.icon=${APP_ICON}"
+      - "traefik.enable=true"
+      - "traefik.http.routers.${APP_NAME}.rule=Host(`${APP_NAME}.${DOMAIN:-local.naybinho.nas}`)"
+      - "traefik.http.services.${APP_NAME}.loadbalancer.server.port=${CONTAINER_PORT:-8080}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${CONTAINER_PORT:-8080}/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  naybinho_network:
+    external: true
+    name: ${DOCKER_NETWORK:-naybinho_network}

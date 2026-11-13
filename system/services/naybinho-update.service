@@ -1,0 +1,32 @@
+[Unit]
+Description=NayBinho NAS Update Check
+Documentation=https://github.com/naybinho/nas
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/naybinho
+
+Environment="NAYBINHO_CONFIG=/opt/naybinho/config/naybinho.conf"
+Environment="PATH=/opt/naybinho/venv/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=-/opt/naybinho/config/naybinho.env
+
+ExecStart=/opt/naybinho/system/scripts/update-naybinho.sh --check-only
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=naybinho-update
+
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/naybinho/data /opt/naybinho/logs /var/log/naybinho
+ProtectHome=true
+
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

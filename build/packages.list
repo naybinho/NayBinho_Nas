@@ -1,0 +1,290 @@
+# =============================================================================
+# packages.list — NayBinho NAS
+# Lista de pacotes incluídos na ISO customizada
+# =============================================================================
+# Formato: um pacote por linha
+# Comentários com #
+# Grupos separados por seções comentadas
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# SISTEMA BASE
+# -----------------------------------------------------------------------------
+ubuntu-minimal
+ubuntu-standard
+linux-generic
+linux-headers-generic
+linux-firmware
+grub-efi-amd64
+grub-pc
+os-prober
+initramfs-tools
+systemd
+systemd-sysv
+dbus
+udev
+acpi
+acpid
+acpi-support
+policykit-1
+
+# -----------------------------------------------------------------------------
+# SHELL E FERRAMENTAS ESSENCIAIS
+# -----------------------------------------------------------------------------
+bash
+bash-completion
+zsh
+tmux
+screen
+vim
+nano
+less
+htop
+btop
+tree
+curl
+wget
+rsync
+git
+unzip
+zip
+p7zip-full
+lsof
+strace
+pciutils
+usbutils
+dmidecode
+hwinfo
+ethtool
+net-tools
+iproute2
+iputils-ping
+traceroute
+dnsutils
+nmap
+tcpdump
+whois
+mtr-tiny
+iotop
+sysstat
+ncdu
+jq
+yq
+bc
+gawk
+sed
+findutils
+
+# -----------------------------------------------------------------------------
+# GERENCIAMENTO DE STORAGE E FILESYSTEMS
+# -----------------------------------------------------------------------------
+# Ferramentas de disco
+parted
+fdisk
+gdisk
+lsblk
+blkid
+hdparm
+sdparm
+nvme-cli
+smartmontools
+sg3-utils
+
+# Filesystems
+e2fsprogs
+xfsprogs
+btrfs-progs
+dosfstools
+exfatprogs
+ntfs-3g
+hfsplus
+hfsprogs
+
+# ZFS
+zfsutils-linux
+zfs-initramfs
+zfs-zed
+zfs-dkms
+
+# RAID (mdadm)
+mdadm
+# Monitoramento RAID
+lvm2
+
+# NFS e CIFS
+nfs-kernel-server
+nfs-common
+cifs-utils
+samba
+samba-common
+samba-common-bin
+winbind
+libnss-winbind
+libpam-winbind
+
+# iSCSI
+open-iscsi
+targetcli-fb
+
+# -----------------------------------------------------------------------------
+# DOCKER ENGINE (instalado separadamente via script, listado aqui como referência)
+# -----------------------------------------------------------------------------
+# docker-ce
+# docker-ce-cli
+# containerd.io
+# docker-buildx-plugin
+# docker-compose-plugin
+
+# -----------------------------------------------------------------------------
+# REDE
+# -----------------------------------------------------------------------------
+netplan.io
+network-manager
+wireguard
+wireguard-tools
+openvpn
+isc-dhcp-server
+bind9
+bind9-utils
+nftables
+ufw
+fail2ban
+iptables
+iptables-persistent
+vlan
+bridge-utils
+ifenslave
+wakeonlan
+avahi-daemon
+libnss-mdns
+openssh-server
+openssh-client
+
+# -----------------------------------------------------------------------------
+# WEB / PROXY REVERSO
+# -----------------------------------------------------------------------------
+nginx
+nginx-extras
+caddy
+certbot
+python3-certbot-nginx
+ssl-cert
+
+# -----------------------------------------------------------------------------
+# BANCO DE DADOS E CACHE
+# -----------------------------------------------------------------------------
+redis-server
+redis-tools
+sqlite3
+
+# -----------------------------------------------------------------------------
+# PYTHON (Backend NayBinho)
+# -----------------------------------------------------------------------------
+python3
+python3-pip
+python3-venv
+python3-dev
+python3-setuptools
+python3-wheel
+python3-cryptography
+python3-jwt
+python3-bcrypt
+python3-passlib
+
+# -----------------------------------------------------------------------------
+# NODE.JS (Frontend build — via NodeSource, listado como referência)
+# -----------------------------------------------------------------------------
+# nodejs (22.x via NodeSource)
+# npm
+
+# -----------------------------------------------------------------------------
+# MONITORAMENTO DO SISTEMA
+# -----------------------------------------------------------------------------
+prometheus-node-exporter
+collectd
+lm-sensors
+hddtemp
+fancontrol
+powertop
+
+# -----------------------------------------------------------------------------
+# BACKUP
+# -----------------------------------------------------------------------------
+restic
+borgbackup
+rsnapshot
+rclone
+duplicity
+
+# -----------------------------------------------------------------------------
+# SEGURANÇA
+# -----------------------------------------------------------------------------
+apparmor
+apparmor-utils
+apparmor-profiles
+auditd
+aide
+rkhunter
+chkrootkit
+lynis
+libpam-google-authenticator
+unattended-upgrades
+apt-listchanges
+
+# -----------------------------------------------------------------------------
+# LOGS
+# -----------------------------------------------------------------------------
+rsyslog
+logrotate
+goaccess
+
+# -----------------------------------------------------------------------------
+# VIRTUALIZAÇÃO / CONTAINERS (extras)
+# -----------------------------------------------------------------------------
+qemu-guest-agent
+open-vm-tools
+
+# -----------------------------------------------------------------------------
+# FUSO HORÁRIO E LOCALIZAÇÃO
+# -----------------------------------------------------------------------------
+tzdata
+locales
+keyboard-configuration
+console-setup
+
+# -----------------------------------------------------------------------------
+# HARDWARE ESPECÍFICO
+# -----------------------------------------------------------------------------
+# Drivers adicionais
+linux-modules-extra-linux-generic
+# Suporte a placas de rede Intel
+firmware-linux-nonfree
+# Plataformas de servidor
+ipmitool
+freeipmi-tools
+# NVME
+nvme-cli
+
+# -----------------------------------------------------------------------------
+# SERVIÇOS EXTRAS
+# -----------------------------------------------------------------------------
+cron
+at
+postfix
+mailutils
+bsd-mailx
+msmtp
+msmtp-mta
+
+# -----------------------------------------------------------------------------
+# DESENVOLVIMENTO (incluído para facilitar customizações avançadas)
+# -----------------------------------------------------------------------------
+build-essential
+gcc
+g++
+make
+cmake
+pkg-config
+libssl-dev
+libffi-dev
+python3-cffi

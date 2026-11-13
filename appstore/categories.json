@@ -1,0 +1,62 @@
+[
+  {
+    "id": "media",
+    "name": "Media & Streaming",
+    "icon": "film",
+    "description": "Servidores de streaming de vídeo, áudio, fotos e gerenciamento de bibliotecas multimídia."
+  },
+  {
+    "id": "downloads",
+    "name": "Downloads & Usenet",
+    "icon": "download-cloud",
+    "description": "Clientes de torrent, usenet, gestores de download automatizados e indexadores."
+  },
+  {
+    "id": "automation",
+    "name": "Home Automation & IoT",
+    "icon": "cpu",
+    "description": "Automação residencial inteligente, corretores MQTT e integração de dispositivos IoT."
+  },
+  {
+    "id": "development",
+    "name": "Development & CI/CD",
+    "icon": "code",
+    "description": "Ambientes de desenvolvimento web, IDEs na nuvem, repositórios Git e automação de código."
+  },
+  {
+    "id": "storage",
+    "name": "Cloud Storage & Backup",
+    "icon": "hard-drive",
+    "description": "Nuvens privadas pessoais, sincronização de arquivos P2P e soluções de backup local/remoto."
+  },
+  {
+    "id": "network",
+    "name": "Network & DNS",
+    "icon": "globe",
+    "description": "Roteamento, servidores DNS, proxy reverso, VPNs mesh e controle de tráfego de rede."
+  },
+  {
+    "id": "security",
+    "name": "Security & Privacy",
+    "icon": "shield",
+    "description": "Cofres de senhas, bloqueio de anúncios e telemetria, autenticação e firewalls."
+  },
+  {
+    "id": "monitoring",
+    "name": "Monitoring & Metrics",
+    "icon": "activity",
+    "description": "Supervisão de telemetria de hardware, painéis de métricas, alarmes e status de serviços."
+  },
+  {
+    "id": "productivity",
+    "name": "Productivity & Office",
+    "icon": "briefcase",
+    "description": "Gerenciamento de documentos sem papel, wikis, organização pessoal e ferramentas de escritório."
+  },
+  {
+    "id": "database",
+    "name": "Databases & Caches",
+    "icon": "database",
+    "description": "Bancos de dados relacionais, NoSQL, caches em memória e bancos de séries temporais."
+  }
+]

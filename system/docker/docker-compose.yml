@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: naybinho-backend
+    restart: always
+    environment:
+      - NAYBINHO_ENV=production
+      - NAYBINHO_DATA_DIR=/var/lib/naybinho
+      - NAYBINHO_LOG_DIR=/var/log/naybinho
+      - NAYBINHO_DB_PATH=/var/lib/naybinho/db/naybinho.db
+      - NAYBINHO_API_PORT=8000
+    volumes:
+      - /var/lib/naybinho:/var/lib/naybinho
+      - /var/log/naybinho:/var/log/naybinho
+      - /opt/naybinho/config:/opt/naybinho/config:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /dev:/dev:ro
+    privileged: true
+    networks:
+      - naybinho-internal
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: naybinho-frontend
+    restart: always
+    networks:
+      - naybinho-internal
+    expose:
+      - "80"
+
+  nginx:
+    image: nginx:alpine
+    container_name: naybinho-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx/naybinho.conf:/etc/nginx/conf.d/default.conf:ro
+      - /var/log/nginx:/var/log/nginx
+      - /etc/ssl/naybinho:/etc/ssl/naybinho:ro
+      - /var/lib/naybinho:/var/lib/naybinho:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - naybinho-internal
+
+networks:
+  naybinho-internal:
+    driver: bridge

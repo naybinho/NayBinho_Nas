@@ -1,0 +1,41 @@
+[Unit]
+Description=NayBinho NAS Monitor (SMART, Temperature, RAID Health)
+Documentation=https://github.com/naybinho/nas
+After=network.target naybinho-backend.service
+Wants=naybinho-backend.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/naybinho
+
+Environment="NAYBINHO_CONFIG=/opt/naybinho/config/naybinho.conf"
+Environment="PATH=/opt/naybinho/venv/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=-/opt/naybinho/config/naybinho.env
+
+ExecStart=/opt/naybinho/system/scripts/monitor.sh --daemon --interval 60
+ExecReload=/bin/kill -USR1 $MAINPID
+
+# Restart automático
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=naybinho-monitor
+
+# Segurança mínima (precisa acessar /dev/*)
+PrivateTmp=false
+ProtectSystem=false
+ProtectHome=true
+NoNewPrivileges=false
+
+TimeoutStartSec=30
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
