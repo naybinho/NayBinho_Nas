@@ -340,25 +340,51 @@ perform_install() {
         --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","/cdrom/*","/isodevice/*"} \
         / "${TARGET_MOUNT}/" 2>/dev/null || true
 
-    # Garantir que kernel Linux e initramfs estejam presentes em /boot no sistema instalado
+        # Garantir que kernel Linux e initramfs estejam presentes como arquivos reais em /boot
     mkdir -p "${TARGET_MOUNT}/boot"
-    if ! ls "${TARGET_MOUNT}/boot"/vmlinuz* 1>/dev/null 2>&1; then
-        for k in /boot/vmlinuz* /cdrom/casper/vmlinuz; do
-            if [[ -f "${k}" ]]; then
-                cp "${k}" "${TARGET_MOUNT}/boot/vmlinuz-$(uname -r 2>/dev/null || echo generic)" 2>/dev/null || true
-                break
-            fi
-        done
-    fi
-    if ! ls "${TARGET_MOUNT}/boot"/initrd* 1>/dev/null 2>&1; then
-        for i in /boot/initrd* /cdrom/casper/initrd; do
-            if [[ -f "${i}" ]]; then
-                cp "${i}" "${TARGET_MOUNT}/boot/initrd.img-$(uname -r 2>/dev/null || echo generic)" 2>/dev/null || true
-                break
-            fi
-        done
+    
+    local src_kernel=""
+    for k in \
+        /boot/vmlinuz* \
+        /casper/vmlinuz* \
+        /cdrom/casper/vmlinuz* \
+        /run/casper-iso/casper/vmlinuz* \
+        /isodevice/casper/vmlinuz* \
+        /rofs/boot/vmlinuz* \
+        "${TARGET_MOUNT}/boot"/vmlinuz-*; do
+        if [[ -f "${k}" ]]; then
+            src_kernel="${k}"
+            break
+        fi
+    done
+
+    local src_initrd=""
+    for i in \
+        /boot/initrd* \
+        /casper/initrd* \
+        /cdrom/casper/initrd* \
+        /run/casper-iso/casper/initrd* \
+        /isodevice/casper/initrd* \
+        /rofs/boot/initrd* \
+        "${TARGET_MOUNT}/boot"/initrd.img-*; do
+        if [[ -f "${i}" ]]; then
+            src_initrd="${i}"
+            break
+        fi
+    done
+
+    local kver
+    kver=$(uname -r 2>/dev/null || echo "6.8.0-generic")
+
+    if [[ -n "${src_kernel}" && -f "${src_kernel}" ]]; then
+        cp -L "${src_kernel}" "${TARGET_MOUNT}/boot/vmlinuz-${kver}" 2>/dev/null || true
+        cp -L "${src_kernel}" "${TARGET_MOUNT}/boot/vmlinuz" 2>/dev/null || true
     fi
 
+    if [[ -n "${src_initrd}" && -f "${src_initrd}" ]]; then
+        cp -L "${src_initrd}" "${TARGET_MOUNT}/boot/initrd.img-${kver}" 2>/dev/null || true
+        cp -L "${src_initrd}" "${TARGET_MOUNT}/boot/initrd.img" 2>/dev/null || true
+    fi
     # Passo 7: Configurar fstab e identidade
     echo 75
     echo "XXX"
@@ -477,22 +503,44 @@ NSHEOF
     # 6. Atualizar lista de inicialização pelo grub-mkconfig
     chroot "${TARGET_MOUNT}" update-grub 2>/dev/null || true
 
-    # 7. Criar diretamente o grub.cfg independente oficial do NayBinho NAS como garantia
+        # 7. Criar diretamente o grub.cfg independente oficial do NayBinho NAS como garantia
     local kernel_name=$(basename "$(ls -v "${TARGET_MOUNT}/boot"/vmlinuz-* 2>/dev/null | tail -n 1)")
     local initrd_name=$(basename "$(ls -v "${TARGET_MOUNT}/boot"/initrd.img-* 2>/dev/null | tail -n 1)")
     mkdir -p "${TARGET_MOUNT}/boot/grub"
     cat > "${TARGET_MOUNT}/boot/grub/grub.cfg" <<GRUBCFGEOF
+# NayBinho NAS — Configuração Direta e Independente de Boot GRUB
 set default="0"
 set timeout=3
 
+insmod part_gpt
+insmod part_msdos
+insmod ext2
+insmod fat
+insmod gzio
+
 search --no-floppy --fs-uuid --set=root ${UUID_ROOT}
 
-menuentry "NayBinho NAS" {
-    linux /boot/${kernel_name} root=UUID=${UUID_ROOT} ro quiet console=tty1
+menuentry "NayBinho NAS" --class naybinho --class gnu-linux --class gnu --class os {
+    recordfail
+    insmod part_gpt
+    insmod part_msdos
+    insmod ext2
+    insmod fat
+    insmod gzio
+    search --no-floppy --fs-uuid --set=root ${UUID_ROOT}
+    linux /boot/${kernel_name} root=UUID=${UUID_ROOT} ro quiet console=tty1 net.ifnames=0 biosdevname=0
     initrd /boot/${initrd_name}
 }
-menuentry "NayBinho NAS (Fallback Symlink)" {
-    linux /boot/vmlinuz root=UUID=${UUID_ROOT} ro quiet console=tty1
+
+menuentry "NayBinho NAS (Fallback)" --class naybinho --class gnu-linux --class gnu --class os {
+    recordfail
+    insmod part_gpt
+    insmod part_msdos
+    insmod ext2
+    insmod fat
+    insmod gzio
+    search --no-floppy --fs-uuid --set=root ${UUID_ROOT}
+    linux /boot/vmlinuz root=UUID=${UUID_ROOT} ro quiet console=tty1 net.ifnames=0 biosdevname=0
     initrd /boot/initrd.img
 }
 GRUBCFGEOF
@@ -506,6 +554,12 @@ GRUBCFGEOF
         "${TARGET_MOUNT}/boot/efi/EFI/ubuntu"; do
         mkdir -p "${efi_cfg_dir}"
         cat > "${efi_cfg_dir}/grub.cfg" <<EFIFORWARD
+insmod part_gpt
+insmod part_msdos
+insmod ext2
+insmod fat
+insmod gzio
+
 search.fs_uuid ${UUID_ROOT} root
 if [ -z "\$root" ]; then
     search.file /boot/grub/grub.cfg root
@@ -514,8 +568,6 @@ set prefix=(\$root)'/boot/grub'
 configfile \$prefix/grub.cfg
 EFIFORWARD
     done
-
-    # Desabilitar o instalador no sistema instalado e habilitar serviços NayBinho
     chroot "${TARGET_MOUNT}" systemctl disable naybinho-installer.service 2>/dev/null || true
     chroot "${TARGET_MOUNT}" systemctl enable  docker.service              2>/dev/null || true
     chroot "${TARGET_MOUNT}" systemctl enable  naybinho-backend.service    2>/dev/null || true
