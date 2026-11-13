@@ -563,15 +563,15 @@ generate_iso() {
     local orig_iso="${CACHE_DIR}/${UBUNTU_ISO_NAME}"
 
     info "Capturando opções de boot nativas da ISO Ubuntu (MBR, EFI, El Torito)..."
-    local mkisofs_opts
-    mkisofs_opts=$(xorriso -indev "${orig_iso}" -report_el_torito as_mkisofs 2>/dev/null)
+    local mkiso_cmd="${BUILD_DIR}/run_xorriso.sh"
+    echo "#!/bin/bash" > "${mkiso_cmd}"
+    echo "set -e" >> "${mkiso_cmd}"
+    echo -n "xorriso -as mkisofs " >> "${mkiso_cmd}"
+    xorriso -indev "${orig_iso}" -report_el_torito as_mkisofs 2>/dev/null | tr '\n' ' ' >> "${mkiso_cmd}"
+    echo " -V '${ISO_LABEL}' -o '${iso_out}' '${extract_dir}'" >> "${mkiso_cmd}"
 
-    if [[ -z "${mkisofs_opts}" ]]; then
-        die "Falha ao extrair parâmetros de boot de ${orig_iso}"
-    fi
-
-    info "Gerando imagem ISO híbrida bootável com xorriso..."
-    eval "xorriso -as mkisofs ${mkisofs_opts} -V '${ISO_LABEL}' -o '${iso_out}' '${extract_dir}'" 2>&1 | tee -a "${LOG_FILE}"
+    info "Gerando imagem ISO híbrida bootável (UEFI + BIOS) com xorriso..."
+    bash "${mkiso_cmd}" 2>&1 | tee -a "${LOG_FILE}"
 
     info "Calculando checksum da ISO gerada..."
     sha256sum "${iso_out}" > "${iso_out}.sha256"
