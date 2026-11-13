@@ -491,8 +491,19 @@ UNITEOF
     " || true
 
     # --- Configurar GRUB ---
-    info "Configurando GRUB..."
-    cp "${SCRIPT_DIR}/grub.cfg" "${squash_dir}/etc/default/grub.d/naybinho.cfg" 2>/dev/null || true
+    info "Configurando padrões do GRUB (/etc/default/grub.d/naybinho.cfg)..."
+    mkdir -p "${squash_dir}/etc/default/grub.d"
+    cat > "${squash_dir}/etc/default/grub.d/naybinho.cfg" <<'GRUBDEFAULTEOF'
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=3
+GRUB_TIMEOUT_STYLE=menu
+GRUB_DISTRIBUTOR="NayBinho NAS"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet console=tty1"
+GRUB_CMDLINE_LINUX=""
+GRUB_TERMINAL_OUTPUT="gfxterm"
+GRUB_GFXMODE="1920x1080,1280x720,auto"
+GRUB_GFXPAYLOAD_LINUX="keep"
+GRUBDEFAULTEOF
 
     # --- Substituir Plymouth (tela de boot) por tema NayBinho NAS ---
     info "Configurando Plymouth NayBinho NAS (removendo splash Ubuntu)..."
