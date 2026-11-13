@@ -16,7 +16,9 @@ linux-generic
 linux-headers-generic
 linux-firmware
 grub-efi-amd64
+grub-efi-amd64-bin
 grub-pc
+efibootmgr
 os-prober
 initramfs-tools
 systemd

@@ -310,6 +310,8 @@ customize_filesystem() {
     info "Instalando pacotes NayBinho NAS..."
     chroot_exec "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         $(grep -v '^#' "${SCRIPT_DIR}/packages.list" | grep -v '^$' | tr '\n' ' ') || true"
+    chroot_exec "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        dosfstools efibootmgr parted grub-efi-amd64-bin grub-pc-bin || true"
 
     # --- Instalar Docker Engine ---
     info "Instalando Docker Engine..."

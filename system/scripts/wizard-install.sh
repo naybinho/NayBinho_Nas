@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-# NayBinho NAS — Assistente de Instalação Guiado (TUI Moderno v2)
+# NayBinho NAS — Assistente de Instalação Guiado (TUI Moderno v2.1)
 # =============================================================================
 # Totalmente customizado: sem referências ao Ubuntu ou Subiquity.
 # Paleta Cyberpunk Dark Glass / Neon Cyan.
+# Suporte robusto a UEFI (com fallback BOOTX64.EFI e startup.nsh) e BIOS.
 # =============================================================================
 set -uo pipefail
 
 export TERM=xterm-256color
-export WT_BACKTITLE="  NayBinho NAS v1.0.0 — Home Lab OS  |  Instalador Oficial"
+export WT_BACKTITLE="  ⚡ NayBinho NAS v1.0.0 — Home Lab OS ⚡  |  Instalador Oficial"
 
 # ---------------------------------------------------------------------------
 # Paleta Cyberpunk Dark-Glass (NEWT / Whiptail)
@@ -47,19 +48,32 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Garantir que whiptail está disponível
+# 2. Carregar módulos de kernel essenciais (FAT32, ext4, NLS)
+# ---------------------------------------------------------------------------
+modprobe vfat 2>/dev/null || true
+modprobe fat 2>/dev/null || true
+modprobe nls_cp437 2>/dev/null || true
+modprobe nls_iso8859_1 2>/dev/null || true
+modprobe ext4 2>/dev/null || true
+modprobe loop 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# 3. Garantir dependências do instalador
 # ---------------------------------------------------------------------------
 if ! command -v whiptail &>/dev/null; then
-    echo "Instalando dependências do instalador..."
-    apt-get update -qq 2>/dev/null
+    apt-get update -qq 2>/dev/null || true
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq whiptail newt 2>/dev/null || true
+fi
+if ! command -v mkfs.vfat &>/dev/null && ! command -v mkfs.fat &>/dev/null; then
+    apt-get update -qq 2>/dev/null || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dosfstools 2>/dev/null || true
 fi
 if ! command -v rsync &>/dev/null; then
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq rsync 2>/dev/null || true
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Tela de Splash ASCII (NayBinho NAS)
+# 4. Tela de Splash ASCII (NayBinho NAS)
 # ---------------------------------------------------------------------------
 clear
 echo -e "\033[1;36m"
@@ -77,10 +91,10 @@ echo "  ║                     Instalador Oficial v1.0.0                   ║"
 echo "  ║                                                                  ║"
 echo "  ╚══════════════════════════════════════════════════════════════════╝"
 echo -e "\033[0m"
-sleep 2
+sleep 1
 
 # ---------------------------------------------------------------------------
-# 4. Tela de Boas-Vindas
+# 5. Tela de Boas-Vindas
 # ---------------------------------------------------------------------------
 whiptail \
     --title "  Bem-vindo ao NayBinho NAS  " \
@@ -94,24 +108,28 @@ com interface web moderna, suporte a RAID, Docker e muito mais.\n\
 O que este assistente faz de forma AUTOMÁTICA:\n\
   ✔  Formata apenas o disco escolhido para o sistema operacional\n\
   ✔  Preserva todos os outros HDs/SSDs (seus dados ficam seguros!)\n\
-  ✔  Instala e configura o sistema completo com GRUB\n\
+  ✔  Instala e configura bootloader UEFI (com suporte nativo a BootX64) e BIOS\n\
   ✔  Ativa o painel Web automaticamente após reiniciar\n\
 \n\
 Pressione ENTER para continuar ou ESC para cancelar." \
-    20 72
+    20 74
 
 # ---------------------------------------------------------------------------
-# 5. Detectar discos disponíveis (exclui pendrive de boot e loop devices)
+# 6. Detectar discos disponíveis (exclui pendrive de boot e loop devices)
 # ---------------------------------------------------------------------------
 BOOT_DEV=""
-# Detectar dispositivo de boot montado em /cdrom ou /isodevice
-for mpoint in /cdrom /isodevice /media/cdrom; do
+for mpoint in /cdrom /isodevice /media/cdrom /rofs; do
     if mountpoint -q "${mpoint}" 2>/dev/null; then
-        BOOT_DEV=$(lsblk -no PKNAME "$(findmnt -n -o SOURCE ${mpoint} 2>/dev/null)" 2>/dev/null || true)
-        break
+        src=$(findmnt -n -o SOURCE "${mpoint}" 2>/dev/null || true)
+        if [[ -n "${src}" ]]; then
+            pk=$(lsblk -no PKNAME "${src}" 2>/dev/null || true)
+            [[ -n "${pk}" ]] && BOOT_DEV="${pk}" && break
+            BOOT_DEV=$(basename "${src}" | sed 's/[0-9]*$//;s/p[0-9]*$//')
+            break
+        fi
     fi
 done
-# Fallback: detectar via /proc/mounts
+
 if [[ -z "${BOOT_DEV}" ]]; then
     BOOT_DEV=$(awk '/\/cdrom|\/isodevice/{print $1}' /proc/mounts 2>/dev/null | \
                sed 's|/dev/||;s|[0-9]*$||;s|p[0-9]*$||' | head -1 || true)
@@ -121,22 +139,20 @@ DISKS_MENU=()
 while IFS= read -r line; do
     name=$(echo "$line" | awk '{print $1}')
     size=$(echo "$line" | awk '{print $2}')
-    model=$(echo "$line" | awk '{$1=$2=$3=$4=""; print $0}' | sed 's/^ *//')
     tran=$(echo "$line" | awk '{print $3}')
     rota=$(echo "$line" | awk '{print $4}')
+    model=$(echo "$line" | awk '{$1=$2=$3=$4=""; print $0}' | sed 's/^ *//')
 
-    # Pular loop, ram, sr*, zram e o dispositivo de boot
     [[ "${name}" =~ ^loop ]] && continue
     [[ "${name}" =~ ^ram  ]] && continue
     [[ "${name}" =~ ^sr   ]] && continue
     [[ "${name}" =~ ^zram ]] && continue
-    [[ "${name}" == "${BOOT_DEV}" ]] && continue
+    [[ -n "${BOOT_DEV}" && "${name}" == "${BOOT_DEV}" ]] && continue
 
-    # Montar descrição amigável
     if [[ "${rota}" == "0" ]]; then
         tipo="SSD/NVMe"
     else
-        tipo="HD (Rotativo)"
+        tipo="HD"
     fi
     desc="${size}  ${tipo}  ${tran:-SATA}"
     if [[ -n "${model// }" ]]; then
@@ -164,7 +180,7 @@ Verifique as conexões e reinicie o instalador." \
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Menu de seleção de disco
+# 7. Menu de seleção de disco
 # ---------------------------------------------------------------------------
 SELECTED_DISK=$(whiptail \
     --title "  Seleção do Disco de Sistema  " \
@@ -186,7 +202,7 @@ Escolha o disco onde instalar o NayBinho NAS:\n\
 TARGET_DEV="/dev/${SELECTED_DISK}"
 
 # ---------------------------------------------------------------------------
-# 7. Confirmação com alerta claro de formatação
+# 8. Confirmação com alerta claro de formatação
 # ---------------------------------------------------------------------------
 DISK_INFO=$(lsblk -d -n -o SIZE,MODEL "${TARGET_DEV}" 2>/dev/null | head -1 | xargs || echo "")
 if ! whiptail \
@@ -210,42 +226,51 @@ Tem certeza que deseja continuar a instalação em ${TARGET_DEV}?" \
 fi
 
 # ---------------------------------------------------------------------------
-# 8. Executar instalação com barra de progresso
+# 9. Executar instalação com barra de progresso
 # ---------------------------------------------------------------------------
 perform_install() {
-    # Passo 1: Limpar disco
+    exec 2>/tmp/naybinho_install.err
+
+    # Passo 1: Desmontar e limpar assinaturas antigas
     echo 5
     echo "XXX"
     echo "5"
-    echo "[ 1/9 ] Preparando o disco ${TARGET_DEV}..."
+    echo "[ 1/9 ] Preparando e limpando o disco ${TARGET_DEV}..."
     echo "XXX"
-    wipefs -a "${TARGET_DEV}" >/dev/null 2>&1 || true
+    swapoff "${TARGET_DEV}"* 2>/dev/null || true
+    for p in $(ls "${TARGET_DEV}"* 2>/dev/null); do
+        umount -f "${p}" 2>/dev/null || true
+    done
+    wipefs -af "${TARGET_DEV}" >/dev/null 2>&1 || true
+    dd if=/dev/zero of="${TARGET_DEV}" bs=1M count=16 conv=notrunc >/dev/null 2>&1 || true
+    sync
     sleep 1
 
     # Passo 2: Criar tabela de partições GPT
-    echo 12
+    echo 15
     echo "XXX"
-    echo "12"
-    echo "[ 2/9 ] Criando tabela de partições GPT..."
+    echo "15"
+    echo "[ 2/9 ] Criando tabela de partições GPT e partições EFI / Sistema..."
     echo "XXX"
-    parted -s "${TARGET_DEV}" mklabel gpt  2>/dev/null || true
-    # Partição EFI (512 MB)
-    parted -s "${TARGET_DEV}" mkpart "EFI"          fat32  1MiB  513MiB  2>/dev/null || true
-    parted -s "${TARGET_DEV}" set 1 esp on           2>/dev/null || true
-    # Partição raiz do sistema
-    parted -s "${TARGET_DEV}" mkpart "NAYBINHO_ROOT" ext4   513MiB 100%   2>/dev/null || true
-    sleep 1
-
-    # Passo 3: Detectar nomes das partições (NVMe usa p1/p2)
-    echo 20
-    echo "XXX"
-    echo "20"
-    echo "[ 3/9 ] Detectando partições criadas..."
-    echo "XXX"
-    sleep 1
+    parted -s "${TARGET_DEV}" -- mklabel gpt 2>/dev/null || true
+    # Partição 1: EFI System Partition (512 MiB)
+    parted -s "${TARGET_DEV}" -- mkpart "EFI" fat32 1MiB 513MiB 2>/dev/null || true
+    parted -s "${TARGET_DEV}" -- set 1 esp on 2>/dev/null || true
+    parted -s "${TARGET_DEV}" -- set 1 boot on 2>/dev/null || true
+    # Partição 2: Root Filesystem (Restante do disco)
+    parted -s "${TARGET_DEV}" -- mkpart "NAYBINHO_ROOT" ext4 513MiB 100% 2>/dev/null || true
+    sync
+    udevadm settle 2>/dev/null || sleep 2
     partprobe "${TARGET_DEV}" 2>/dev/null || true
+    udevadm settle 2>/dev/null || sleep 2
     sleep 2
 
+    # Passo 3: Identificar nós de partições
+    echo 25
+    echo "XXX"
+    echo "25"
+    echo "[ 3/9 ] Detectando partições criadas no kernel..."
+    echo "XXX"
     if [[ "${TARGET_DEV}" =~ nvme|mmcblk ]]; then
         PART_BOOT="${TARGET_DEV}p1"
         PART_ROOT="${TARGET_DEV}p2"
@@ -254,38 +279,60 @@ perform_install() {
         PART_ROOT="${TARGET_DEV}2"
     fi
 
-    # Passo 4: Formatar partições
-    echo 28
-    echo "XXX"
-    echo "28"
-    echo "[ 4/9 ] Formatando partições (FAT32 EFI + EXT4 Sistema)..."
-    echo "XXX"
-    mkfs.fat -F32 -n "NAYBINHO_EFI" "${PART_BOOT}" >/dev/null 2>&1 || true
-    mkfs.ext4 -F -L "NAYBINHO_OS"  "${PART_ROOT}" >/dev/null 2>&1 || true
-    sleep 1
+    for i in $(seq 1 10); do
+        [[ -b "${PART_BOOT}" && -b "${PART_ROOT}" ]] && break
+        sleep 1
+    done
 
-    # Passo 5: Montar partições
+    # Passo 4: Formatar partições
     echo 35
     echo "XXX"
     echo "35"
+    echo "[ 4/9 ] Formatando partições (FAT32 EFI + EXT4 Sistema)..."
+    echo "XXX"
+    wipefs -af "${PART_BOOT}" >/dev/null 2>&1 || true
+    wipefs -af "${PART_ROOT}" >/dev/null 2>&1 || true
+
+    # Formatar FAT32 com retentativas
+    if command -v mkfs.vfat &>/dev/null; then
+        mkfs.vfat -F 32 -n "NAYBINHO_EFI" "${PART_BOOT}" >/dev/null 2>&1 || \
+        mkfs.vfat -F 32 "${PART_BOOT}" >/dev/null 2>&1
+    elif command -v mkfs.fat &>/dev/null; then
+        mkfs.fat -F 32 -n "NAYBINHO_EFI" "${PART_BOOT}" >/dev/null 2>&1 || \
+        mkfs.fat -F 32 "${PART_BOOT}" >/dev/null 2>&1
+    fi
+
+    # Formatar EXT4
+    mkfs.ext4 -F -L "NAYBINHO_OS" "${PART_ROOT}" >/dev/null 2>&1
+    sync
+    sleep 1
+
+    # Passo 5: Montar partições de destino
+    echo 45
+    echo "XXX"
+    echo "45"
     echo "[ 5/9 ] Montando partições de destino..."
     echo "XXX"
     TARGET_MOUNT="/mnt/naybinho_target"
+    umount -l "${TARGET_MOUNT}/boot/efi" 2>/dev/null || true
     umount -l "${TARGET_MOUNT}" 2>/dev/null || true
     rm -rf "${TARGET_MOUNT}"
     mkdir -p "${TARGET_MOUNT}"
-    mount "${PART_ROOT}" "${TARGET_MOUNT}" || {
-        echo "ERRO: Não foi possível montar ${PART_ROOT}"
+
+    mount -t ext4 "${PART_ROOT}" "${TARGET_MOUNT}" || {
+        echo "ERRO: Não foi possível montar partição raiz ${PART_ROOT}"
         exit 1
     }
+
     mkdir -p "${TARGET_MOUNT}/boot/efi"
-    mount "${PART_BOOT}" "${TARGET_MOUNT}/boot/efi" || true
+    mount -t vfat "${PART_BOOT}" "${TARGET_MOUNT}/boot/efi" 2>/dev/null || \
+    mount "${PART_BOOT}" "${TARGET_MOUNT}/boot/efi" 2>/dev/null || true
     sleep 1
 
-    # Passo 6: Copiar sistema ao vivo para o disco
-    echo 42
+    # Passo 6: Copiar sistema operacional ao vivo para o disco
+    echo 55
     echo "XXX"
-    echo "42"
+    echo "55"
     echo "[ 6/9 ] Copiando sistema NayBinho NAS para o disco..."
     echo "        (Pode demorar alguns minutos)"
     echo "XXX"
@@ -293,10 +340,10 @@ perform_install() {
         --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","/cdrom/*","/isodevice/*"} \
         / "${TARGET_MOUNT}/" 2>/dev/null || true
 
-    # Passo 7: Configurar fstab
-    echo 72
+    # Passo 7: Configurar fstab e identidade
+    echo 75
     echo "XXX"
-    echo "72"
+    echo "75"
     echo "[ 7/9 ] Configurando sistema de arquivos (fstab)..."
     echo "XXX"
     UUID_ROOT=$(blkid -s UUID -o value "${PART_ROOT}" 2>/dev/null || echo "")
@@ -309,23 +356,29 @@ UUID=${UUID_ROOT}  /           ext4    errors=remount-ro   0      1
 UUID=${UUID_BOOT}  /boot/efi   vfat    umask=0077          0      2
 FSTABEOF
 
-    # Hostname
     echo "naybinho-nas" > "${TARGET_MOUNT}/etc/hostname"
     sleep 1
 
-    # Passo 8: Instalar bootloader GRUB
-    echo 82
+    # Passo 8: Instalar bootloader GRUB (UEFI + BIOS com fallback BOOTX64.EFI)
+    echo 85
     echo "XXX"
-    echo "82"
-    echo "[ 8/9 ] Instalando bootloader GRUB (UEFI + BIOS)..."
+    echo "85"
+    echo "[ 8/9 ] Instalando e configurando bootloader UEFI / BIOS..."
     echo "XXX"
-    # Montar bind mounts para chroot
+
+    # Garantir que a partição EFI está montada
+    if ! mountpoint -q "${TARGET_MOUNT}/boot/efi"; then
+        mkdir -p "${TARGET_MOUNT}/boot/efi"
+        mount -t vfat "${PART_BOOT}" "${TARGET_MOUNT}/boot/efi" 2>/dev/null || true
+    fi
+
+    # Montar bind mounts para o chroot
     for dir in dev dev/pts proc sys run; do
         mkdir -p "${TARGET_MOUNT}/${dir}"
         mount --bind "/${dir}" "${TARGET_MOUNT}/${dir}" 2>/dev/null || true
     done
 
-    # Copiar tema e plano de fundo GRUB para o disco instalado
+    # Copiar tema e plano de fundo GRUB oficial
     if [[ -d /boot/grub/themes/naybinho ]]; then
         mkdir -p "${TARGET_MOUNT}/boot/grub/themes"
         cp -r /boot/grub/themes/naybinho "${TARGET_MOUNT}/boot/grub/themes/" 2>/dev/null || true
@@ -334,19 +387,53 @@ FSTABEOF
         cp /boot/grub/background.jpg "${TARGET_MOUNT}/boot/grub/background.jpg" 2>/dev/null || true
     fi
 
-    # Instalar GRUB UEFI e BIOS
+    # 1. Instalar GRUB UEFI padrão (com id NayBinhoNAS)
     chroot "${TARGET_MOUNT}" grub-install \
         --target=x86_64-efi \
         --efi-directory=/boot/efi \
         --bootloader-id=NayBinhoNAS \
         --recheck 2>/dev/null || true
+
+    # 2. Instalar GRUB UEFI modo REMOVÍVEL (cria automaticamente /EFI/BOOT/BOOTX64.EFI)
+    chroot "${TARGET_MOUNT}" grub-install \
+        --target=x86_64-efi \
+        --efi-directory=/boot/efi \
+        --bootloader-id=NayBinhoNAS \
+        --removable \
+        --recheck 2>/dev/null || true
+
+    # 3. Garantir cópia de segurança de BOOTX64.EFI em EFI/BOOT/ (Universal UEFI Fallback)
+    mkdir -p "${TARGET_MOUNT}/boot/efi/EFI/BOOT"
+    mkdir -p "${TARGET_MOUNT}/boot/efi/EFI/boot"
+    for efi_src in \
+        "${TARGET_MOUNT}/boot/efi/EFI/NayBinhoNAS/grubx64.efi" \
+        "${TARGET_MOUNT}/boot/efi/EFI/ubuntu/grubx64.efi" \
+        "${TARGET_MOUNT}/usr/lib/grub/x86_64-efi/monolithic/grubx64.efi"; do
+        if [[ -f "${efi_src}" ]]; then
+            cp "${efi_src}" "${TARGET_MOUNT}/boot/efi/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
+            cp "${efi_src}" "${TARGET_MOUNT}/boot/efi/EFI/BOOT/bootx64.efi" 2>/dev/null || true
+            cp "${efi_src}" "${TARGET_MOUNT}/boot/efi/EFI/boot/bootx64.efi" 2>/dev/null || true
+            break
+        fi
+    done
+
+    # 4. Criar script startup.nsh na raiz da partição EFI (para auto-iniciar se cair na Shell UEFI)
+    cat > "${TARGET_MOUNT}/boot/efi/startup.nsh" <<'NSHEOF'
+@echo -off
+\EFI\BOOT\BOOTX64.EFI
+\EFI\NayBinhoNAS\grubx64.efi
+NSHEOF
+
+    # 5. Instalar também GRUB para MBR/BIOS legado (caso a placa-mãe use CSM/Legacy)
     chroot "${TARGET_MOUNT}" grub-install \
         --target=i386-pc \
         "${TARGET_DEV}" \
         --recheck 2>/dev/null || true
+
+    # Atualizar lista de inicialização
     chroot "${TARGET_MOUNT}" update-grub 2>/dev/null || true
 
-    # Desabilitar instalador no sistema instalado e ativar serviços NAS
+    # Desabilitar o instalador no sistema instalado e habilitar serviços NayBinho
     chroot "${TARGET_MOUNT}" systemctl disable naybinho-installer.service 2>/dev/null || true
     chroot "${TARGET_MOUNT}" systemctl enable  docker.service              2>/dev/null || true
     chroot "${TARGET_MOUNT}" systemctl enable  naybinho-backend.service    2>/dev/null || true
@@ -362,7 +449,7 @@ FSTABEOF
     echo 95
     echo "XXX"
     echo "95"
-    echo "[ 9/9 ] Finalizando e desmontando discos..."
+    echo "[ 9/9 ] Finalizando e sincronizando discos..."
     echo "XXX"
     sync
     umount -l "${TARGET_MOUNT}/boot/efi" 2>/dev/null || true
@@ -380,17 +467,17 @@ FSTABEOF
 perform_install | whiptail \
     --title "  Instalando NayBinho NAS...  " \
     --backtitle "${WT_BACKTITLE}" \
-    --gauge "\nInstalando o sistema. Por favor, aguarde...\n" \
+    --gauge "\nInstalando o sistema operacional. Por favor, aguarde...\n" \
     10 72 0
 
 # ---------------------------------------------------------------------------
-# 9. Obter IP local
+# 10. Obter IP local da máquina
 # ---------------------------------------------------------------------------
 LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "192.168.X.X")
 [[ -z "${LOCAL_IP}" ]] && LOCAL_IP="192.168.X.X"
 
 # ---------------------------------------------------------------------------
-# 10. Tela de sucesso com instruções de acesso
+# 11. Tela de sucesso com instruções de acesso
 # ---------------------------------------------------------------------------
 whiptail \
     --title "  ✔  Instalação Concluída com Sucesso!  " \
@@ -420,7 +507,7 @@ PRÓXIMOS PASSOS:\n\
     26 68
 
 # ---------------------------------------------------------------------------
-# 11. Oferecer reinicialização
+# 12. Oferecer reinicialização
 # ---------------------------------------------------------------------------
 if whiptail \
     --title "  Reiniciar Servidor  " \
