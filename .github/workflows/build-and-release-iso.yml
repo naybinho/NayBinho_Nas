@@ -113,6 +113,7 @@ jobs:
           chmod +x build/build-iso.sh
           mkdir -p dist-release
           sudo -E bash build/build-iso.sh --version "${VERSION}" --output dist-release
+          sudo chown -R $(id -u):$(id -g) dist-release
 
       - name: Gerar Checksums SHA256 dos Artefatos
         run: |
