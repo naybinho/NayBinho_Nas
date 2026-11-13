@@ -492,6 +492,65 @@ UNITEOF
     info "Configurando GRUB..."
     cp "${SCRIPT_DIR}/grub.cfg" "${squash_dir}/etc/default/grub.d/naybinho.cfg" 2>/dev/null || true
 
+    # --- Substituir Plymouth (tela de boot) por tema NayBinho NAS ---
+    info "Configurando Plymouth NayBinho NAS (removendo splash Ubuntu)..."
+    # Criar tema Plymouth texto simples com identidade NayBinho
+    mkdir -p "${squash_dir}/usr/share/plymouth/themes/naybinho"
+    cat > "${squash_dir}/usr/share/plymouth/themes/naybinho/naybinho.plymouth" <<'PLYMOUTHEOF'
+[Plymouth Theme]
+Name=NayBinho NAS
+Description=NayBinho NAS Boot Splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/naybinho
+ScriptFile=/usr/share/plymouth/themes/naybinho/naybinho.script
+PLYMOUTHEOF
+
+    cat > "${squash_dir}/usr/share/plymouth/themes/naybinho/naybinho.script" <<'SCRIPTEOF'
+Window.SetBackgroundTopColor(0.00, 0.03, 0.08);
+Window.SetBackgroundBottomColor(0.00, 0.01, 0.04);
+
+logo_image = Image("logo.png");
+if (logo_image) {
+    logo_sprite = Sprite(logo_image);
+    logo_sprite.SetX(Window.GetWidth()  / 2 - logo_image.GetWidth()  / 2);
+    logo_sprite.SetY(Window.GetHeight() / 2 - logo_image.GetHeight() / 2 - 40);
+}
+
+msg_image = Image.Text("NayBinho NAS  —  Iniciando...", 0.0, 0.94, 1.0, 1);
+msg_sprite = Sprite(msg_image);
+msg_sprite.SetX(Window.GetWidth()  / 2 - msg_image.GetWidth()  / 2);
+msg_sprite.SetY(Window.GetHeight() / 2 + 60);
+
+fun refresh_callback () {
+}
+Plymouth.SetRefreshFunction(refresh_callback);
+SCRIPTEOF
+
+    # Usar o logo existente (copiar como PNG se houver)
+    if [[ -f "${SCRIPT_DIR}/grub-background.jpg" ]]; then
+        cp "${SCRIPT_DIR}/grub-background.jpg" \
+           "${squash_dir}/usr/share/plymouth/themes/naybinho/logo.png" 2>/dev/null || true
+    fi
+
+    # Registrar e ativar o tema NayBinho no chroot
+    chroot_exec "
+        plymouth-set-default-theme naybinho 2>/dev/null || true
+        update-alternatives --set default.plymouth \
+            /usr/share/plymouth/themes/naybinho/naybinho.plymouth 2>/dev/null || true
+        update-initramfs -u 2>/dev/null || true
+    " || true
+
+    # Garantir que o /etc/plymouth/plymouthd.conf use nosso tema
+    mkdir -p "${squash_dir}/etc/plymouth"
+    cat > "${squash_dir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
+[Daemon]
+Theme=naybinho
+ShowDelay=0
+DeviceTimeout=5
+PLYMOUTHCONF
+
     # --- Configurar UFW (firewall) ---
     info "Configurando firewall UFW..."
     chroot_exec "
@@ -570,6 +629,103 @@ repack_squashfs() {
     printf "%d" "${squash_size}" > "${extract_dir}/casper/filesystem.size" 2>/dev/null || true
 
     info "squashfs gerado: $(du -sh "${squash_out}" | cut -f1)"
+}
+
+# ---------------------------------------------------------------------------
+# Passo 6b — Modificar installer.squashfs para substituir Subiquity
+# ---------------------------------------------------------------------------
+patch_installer_squashfs() {
+    step "Substituindo Subiquity (Ubuntu Installer) por NayBinho Installer"
+
+    local extract_dir="${BUILD_DIR}/iso-extract"
+    local installer_dir="${BUILD_DIR}/installer-squashfs-root"
+
+    # Procurar o installer.squashfs (pode ter nomes variados)
+    local installer_sq=""
+    for candidate in \
+        "${extract_dir}/casper/installer.squashfs" \
+        "${extract_dir}/casper/installer.generic.squashfs"; do
+        if [[ -f "${candidate}" ]]; then
+            installer_sq="${candidate}"
+            info "Encontrado installer squashfs: $(basename ${candidate})"
+            break
+        fi
+    done
+
+    if [[ -z "${installer_sq}" ]]; then
+        warn "installer.squashfs não encontrado — pulando passo."
+        return 0
+    fi
+
+    rm -rf "${installer_dir}"
+    mkdir -p "${installer_dir}"
+    info "Extraindo ${installer_sq}..."
+    unsquashfs -f -d "${installer_dir}" "${installer_sq}" 2>&1 | tee -a "${LOG_FILE}" || {
+        warn "Não foi possível extrair installer.squashfs — Subiquity pode ainda aparecer."
+        return 0
+    }
+
+    info "Mascarando serviços Subiquity dentro do installer.squashfs..."
+    # Criar links simbólicos de mask para todos os serviços do Subiquity
+    mkdir -p "${installer_dir}/etc/systemd/system"
+    for svc in subiquity.service subiquity-server.service subiquity-ui.service \
+                subiquity-reboot.service subiquity-poweroff.service \
+                snap.subiquity.subiquity.service snap.subiquity.subiquity-server.service; do
+        ln -sf /dev/null "${installer_dir}/etc/systemd/system/${svc}" 2>/dev/null || true
+    done
+
+    # Remover binários do Subiquity se existirem
+    rm -f "${installer_dir}/usr/bin/subiquity" 2>/dev/null || true
+    rm -rf "${installer_dir}/snap/subiquity" 2>/dev/null || true
+
+    # Copiar o wizard-install.sh para o installer.squashfs também
+    mkdir -p "${installer_dir}/opt/naybinho/scripts"
+    if [[ -f "${SCRIPT_DIR}/../system/scripts/wizard-install.sh" ]]; then
+        cp "${SCRIPT_DIR}/../system/scripts/wizard-install.sh" \
+           "${installer_dir}/opt/naybinho/scripts/wizard-install.sh"
+        chmod +x "${installer_dir}/opt/naybinho/scripts/wizard-install.sh"
+    fi
+
+    # Adicionar o serviço do NayBinho Installer ao installer.squashfs
+    cat > "${installer_dir}/etc/systemd/system/naybinho-installer.service" <<'UNITEOF'
+[Unit]
+Description=NayBinho NAS Interactive TUI Installer
+After=network.target getty.target
+Conflicts=getty@tty1.service
+Before=getty@tty1.service
+
+[Service]
+Type=idle
+ExecStart=/opt/naybinho/scripts/wizard-install.sh
+StandardInput=tty-force
+StandardOutput=inherit
+StandardError=inherit
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+
+    # Habilitar o serviço
+    mkdir -p "${installer_dir}/etc/systemd/system/multi-user.target.wants"
+    ln -sf /etc/systemd/system/naybinho-installer.service \
+       "${installer_dir}/etc/systemd/system/multi-user.target.wants/naybinho-installer.service" \
+       2>/dev/null || true
+
+    info "Recompactando ${installer_sq}..."
+    rm -f "${installer_sq}"
+    mksquashfs "${installer_dir}" "${installer_sq}" \
+        -comp zstd -Xcompression-level 15 \
+        2>&1 | tee -a "${LOG_FILE}" || \
+    mksquashfs "${installer_dir}" "${installer_sq}" \
+        -comp xz \
+        2>&1 | tee -a "${LOG_FILE}"
+
+    rm -rf "${installer_dir}"
+    info "installer.squashfs recompactado: $(du -sh "${installer_sq}" | cut -f1)"
 }
 
 # ---------------------------------------------------------------------------
@@ -688,6 +844,7 @@ main() {
     prepare_filesystem
     customize_filesystem
     repack_squashfs
+    patch_installer_squashfs
     configure_bootloader
     generate_iso
     print_summary
