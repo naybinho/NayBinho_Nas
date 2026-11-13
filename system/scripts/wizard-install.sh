@@ -397,6 +397,31 @@ FSTABEOF
         mount --bind "/${dir}" "${TARGET_MOUNT}/${dir}" 2>/dev/null || true
     done
 
+    # Limpar qualquer configuração residual do grub.d e aplicar padrão válido
+    rm -rf "${TARGET_MOUNT}/etc/default/grub.d"/* 2>/dev/null || true
+    mkdir -p "${TARGET_MOUNT}/etc/default/grub.d"
+    cat > "${TARGET_MOUNT}/etc/default/grub.d/naybinho.cfg" <<'GRUBDEFAULTEOF'
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=3
+GRUB_TIMEOUT_STYLE=menu
+GRUB_DISTRIBUTOR="NayBinho NAS"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet console=tty1"
+GRUB_CMDLINE_LINUX=""
+GRUB_TERMINAL_OUTPUT="gfxterm"
+GRUB_GFXMODE="1920x1080,1280x720,auto"
+GRUB_GFXPAYLOAD_LINUX="keep"
+GRUBDEFAULTEOF
+
+    # Garantir symlinks para vmlinuz e initrd.img na raiz de /boot
+    local latest_kernel=$(ls -v "${TARGET_MOUNT}/boot"/vmlinuz-* 2>/dev/null | tail -n 1)
+    local latest_initrd=$(ls -v "${TARGET_MOUNT}/boot"/initrd.img-* 2>/dev/null | tail -n 1)
+    if [[ -n "${latest_kernel}" && -f "${latest_kernel}" ]]; then
+        ln -sf "$(basename "${latest_kernel}")" "${TARGET_MOUNT}/boot/vmlinuz" 2>/dev/null || true
+    fi
+    if [[ -n "${latest_initrd}" && -f "${latest_initrd}" ]]; then
+        ln -sf "$(basename "${latest_initrd}")" "${TARGET_MOUNT}/boot/initrd.img" 2>/dev/null || true
+    fi
+
     # Copiar tema e plano de fundo GRUB oficial
     if [[ -d /boot/grub/themes/naybinho ]]; then
         mkdir -p "${TARGET_MOUNT}/boot/grub/themes"
@@ -449,8 +474,46 @@ NSHEOF
         "${TARGET_DEV}" \
         --recheck 2>/dev/null || true
 
-    # Atualizar lista de inicialização
+    # 6. Atualizar lista de inicialização pelo grub-mkconfig
     chroot "${TARGET_MOUNT}" update-grub 2>/dev/null || true
+
+    # 7. Criar diretamente o grub.cfg independente oficial do NayBinho NAS como garantia
+    local kernel_name=$(basename "$(ls -v "${TARGET_MOUNT}/boot"/vmlinuz-* 2>/dev/null | tail -n 1)")
+    local initrd_name=$(basename "$(ls -v "${TARGET_MOUNT}/boot"/initrd.img-* 2>/dev/null | tail -n 1)")
+    mkdir -p "${TARGET_MOUNT}/boot/grub"
+    cat > "${TARGET_MOUNT}/boot/grub/grub.cfg" <<GRUBCFGEOF
+set default="0"
+set timeout=3
+
+search --no-floppy --fs-uuid --set=root ${UUID_ROOT}
+
+menuentry "NayBinho NAS" {
+    linux /boot/${kernel_name} root=UUID=${UUID_ROOT} ro quiet console=tty1
+    initrd /boot/${initrd_name}
+}
+menuentry "NayBinho NAS (Fallback Symlink)" {
+    linux /boot/vmlinuz root=UUID=${UUID_ROOT} ro quiet console=tty1
+    initrd /boot/initrd.img
+}
+GRUBCFGEOF
+
+    # 8. Gravar arquivos de redirecionamento EFI para apontar sempre para a partição root
+    for efi_cfg_dir in \
+        "${TARGET_MOUNT}/boot/efi" \
+        "${TARGET_MOUNT}/boot/efi/EFI/BOOT" \
+        "${TARGET_MOUNT}/boot/efi/EFI/boot" \
+        "${TARGET_MOUNT}/boot/efi/EFI/NayBinhoNAS" \
+        "${TARGET_MOUNT}/boot/efi/EFI/ubuntu"; do
+        mkdir -p "${efi_cfg_dir}"
+        cat > "${efi_cfg_dir}/grub.cfg" <<EFIFORWARD
+search.fs_uuid ${UUID_ROOT} root
+if [ -z "\$root" ]; then
+    search.file /boot/grub/grub.cfg root
+fi
+set prefix=(\$root)'/boot/grub'
+configfile \$prefix/grub.cfg
+EFIFORWARD
+    done
 
     # Desabilitar o instalador no sistema instalado e habilitar serviços NayBinho
     chroot "${TARGET_MOUNT}" systemctl disable naybinho-installer.service 2>/dev/null || true
@@ -463,7 +526,6 @@ NSHEOF
         umount -l "${TARGET_MOUNT}/${dir}" 2>/dev/null || true
     done
     sleep 1
-
     # Passo 9: Finalizar e desmontar
     echo 95
     echo "XXX"
