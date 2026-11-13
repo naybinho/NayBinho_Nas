@@ -22,6 +22,10 @@ Todas as versões do **NayBinho NAS** seguem o versionamento semântico (`vMAJOR
   - Verificação automática periódica de novas versões no GitHub Releases.
   - Notificação no cabeçalho e tela do sistema com changelog detalhado de Novidades, Melhorias e Correções.
   - Atualização com 1 clique: download automático, validação SHA256, aplicação de patches e reinicialização dos serviços sem perda de dados.
+- **Experiência de Instalação Ultrassimplificada para Usuários Leigos**:
+  - **Instalador de 1 Linha** (`curl -fsSL ... | sudo bash`) para instalar em qualquer Ubuntu em 1 minuto.
+  - **Assistente Interativo TUI no Boot** (`wizard-install.sh`) com detecção automática de discos, proteção de HDDs de dados e barra de progresso.
+  - **Assistente de Boas-Vindas Web (First-Run Wizard)** na interface para orientar os primeiros passos do usuário.
 - **Gerador de Imagem ISO Bootável**: Pipeline automatizado no GitHub Actions para compilação e publicação da ISO com instalador autônomo.
 
 ### ⚡ Melhorias
