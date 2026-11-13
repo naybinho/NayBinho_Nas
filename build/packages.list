@@ -38,6 +38,8 @@ screen
 vim
 nano
 less
+whiptail
+dialog
 htop
 btop
 tree

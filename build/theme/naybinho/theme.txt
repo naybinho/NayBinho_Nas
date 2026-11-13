@@ -1,0 +1,34 @@
+# NayBinho NAS — Official GRUB Theme
+title-text: "NayBinho NAS — Home Lab OS"
+title-font: "Unifont Regular 16"
+title-color: "#00f0ff"
+desktop-image: "background.jpg"
+desktop-color: "#050b14"
+
++ boot_menu {
+    left = 20%
+    top = 56%
+    width = 60%
+    height = 36%
+    item_font = "Unifont Regular 14"
+    item_color = "#94a3b8"
+    selected_item_color = "#00f0ff"
+    item_height = 28
+    item_spacing = 6
+    icon_width = 24
+    icon_height = 24
+}
+
++ progress_bar {
+    id = "__timeout__"
+    left = 20%
+    top = 94%
+    width = 60%
+    height = 14
+    show_text = true
+    text_color = "#00e5ff"
+    text = "Iniciando instalação em %d segundos..."
+    bg_color = "#0a192f"
+    fg_color = "#00f0ff"
+    border_color = "#00e5ff"
+}

@@ -324,8 +324,8 @@ customize_filesystem() {
             docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     "
 
-    # --- Configurar hostname e identidade ---
-    info "Configurando identidade do sistema..."
+    # --- Configurar hostname e identidade completa ---
+    info "Configurando identidade do sistema (NayBinho NAS)..."
     echo "naybinho-nas" > "${squash_dir}/etc/hostname"
     cat > "${squash_dir}/etc/hosts" <<EOF
 127.0.0.1   localhost
@@ -334,6 +334,33 @@ customize_filesystem() {
 ff02::1     ip6-allnodes
 ff02::2     ip6-allrouters
 EOF
+
+    # Substituir metadados e branding do Ubuntu por NayBinho NAS
+    info "Aplicando identidade oficial NayBinho NAS em os-release e issue..."
+    cat > "${squash_dir}/etc/os-release" <<'EOF'
+NAME="NayBinho NAS"
+VERSION="1.0.0 (Noble Numbat)"
+ID=naybinho
+ID_LIKE=ubuntu
+PRETTY_NAME="NayBinho NAS v1.0.0"
+VERSION_ID="1.0.0"
+HOME_URL="https://naybinho.io"
+SUPPORT_URL="https://naybinho.io/support"
+BUG_REPORT_URL="https://naybinho.io/bugs"
+PRIVACY_POLICY_URL="https://naybinho.io/privacy"
+UBUNTU_CODENAME=noble
+EOF
+    cp "${squash_dir}/etc/os-release" "${squash_dir}/usr/lib/os-release" 2>/dev/null || true
+
+    cat > "${squash_dir}/etc/lsb-release" <<'EOF'
+DISTRIB_ID=NayBinhoNAS
+DISTRIB_RELEASE=1.0.0
+DISTRIB_CODENAME=noble
+DISTRIB_DESCRIPTION="NayBinho NAS v1.0.0"
+EOF
+
+    echo "NayBinho NAS v1.0.0 \n \l" > "${squash_dir}/etc/issue"
+    echo "NayBinho NAS v1.0.0" > "${squash_dir}/etc/issue.net"
 
     # --- Copiar arquivos do NayBinho ---
     info "Copiando arquivos do NayBinho NAS..."
@@ -346,12 +373,39 @@ EOF
         "${SCRIPT_DIR}/../VERSION" \
         "${squash_dir}/opt/naybinho/" || true
 
+    # Garantir permissão de execução nos scripts
+    chmod +x "${squash_dir}/opt/naybinho/system/scripts/"*.sh 2>/dev/null || true
+
     # --- Criar usuário naybinho ---
     info "Criando usuário do sistema naybinho..."
     chroot_exec "
         useradd -r -s /usr/sbin/nologin -d /opt/naybinho -c 'NayBinho NAS System' naybinho 2>/dev/null || true
         usermod -aG docker naybinho 2>/dev/null || true
     "
+
+    # --- Configurar Instalador TUI NayBinho no tty1 (Live ISO) ---
+    info "Configurando Instalador TUI NayBinho NAS..."
+    cat > "${squash_dir}/etc/systemd/system/naybinho-installer.service" <<'UNITEOF'
+[Unit]
+Description=NayBinho NAS Interactive TUI Installer
+After=network.target getty.target
+Conflicts=getty@tty1.service
+Before=getty@tty1.service
+
+[Service]
+Type=idle
+ExecStart=/opt/naybinho/system/scripts/wizard-install.sh
+StandardInput=tty-force
+StandardOutput=inherit
+StandardError=inherit
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
 
     # --- Instalar e configurar serviços systemd ---
     info "Configurando serviços systemd..."
@@ -419,6 +473,8 @@ UNITEOF
 
     # Habilitar serviços
     chroot_exec "
+        systemctl mask subiquity.service subiquity-server.service subiquity-ui.service 2>/dev/null || true
+        systemctl enable naybinho-installer.service 2>/dev/null || true
         systemctl enable docker 2>/dev/null || true
         systemctl enable naybinho-backend.service 2>/dev/null || true
         systemctl enable naybinho-frontend.service 2>/dev/null || true
@@ -524,10 +580,23 @@ configure_bootloader() {
 
     local extract_dir="${BUILD_DIR}/iso-extract"
 
-    # Copiar GRUB customizado
-    info "Configurando GRUB NayBinho..."
-    mkdir -p "${extract_dir}/boot/grub"
+    # Copiar GRUB customizado, imagem de fundo e tema
+    info "Configurando GRUB NayBinho com Logo Oficial e Tema Cyberpunk..."
+    mkdir -p "${extract_dir}/boot/grub/themes/naybinho"
     cp "${SCRIPT_DIR}/grub.cfg" "${extract_dir}/boot/grub/grub.cfg"
+    if [[ -d "${extract_dir}/EFI/boot" ]]; then
+        cp "${SCRIPT_DIR}/grub.cfg" "${extract_dir}/EFI/boot/grub.cfg" 2>/dev/null || true
+    fi
+    if [[ -f "${extract_dir}/boot/grub/loopback.cfg" ]]; then
+        cp "${SCRIPT_DIR}/grub.cfg" "${extract_dir}/boot/grub/loopback.cfg" 2>/dev/null || true
+    fi
+    if [[ -f "${SCRIPT_DIR}/grub-background.jpg" ]]; then
+        cp "${SCRIPT_DIR}/grub-background.jpg" "${extract_dir}/boot/grub/background.jpg"
+        cp "${SCRIPT_DIR}/grub-background.jpg" "${extract_dir}/boot/grub/themes/naybinho/background.jpg"
+    fi
+    if [[ -f "${SCRIPT_DIR}/theme/naybinho/theme.txt" ]]; then
+        cp "${SCRIPT_DIR}/theme/naybinho/theme.txt" "${extract_dir}/boot/grub/themes/naybinho/theme.txt"
+    fi
 
     # Atualizar metadados
     info "Atualizando metadados da ISO..."
