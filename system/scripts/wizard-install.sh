@@ -325,6 +325,15 @@ FSTABEOF
         mount --bind "/${dir}" "${TARGET_MOUNT}/${dir}" 2>/dev/null || true
     done
 
+    # Copiar tema e plano de fundo GRUB para o disco instalado
+    if [[ -d /boot/grub/themes/naybinho ]]; then
+        mkdir -p "${TARGET_MOUNT}/boot/grub/themes"
+        cp -r /boot/grub/themes/naybinho "${TARGET_MOUNT}/boot/grub/themes/" 2>/dev/null || true
+    fi
+    if [[ -f /boot/grub/background.jpg ]]; then
+        cp /boot/grub/background.jpg "${TARGET_MOUNT}/boot/grub/background.jpg" 2>/dev/null || true
+    fi
+
     # Instalar GRUB UEFI e BIOS
     chroot "${TARGET_MOUNT}" grub-install \
         --target=x86_64-efi \

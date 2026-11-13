@@ -601,10 +601,10 @@ MOTDEOF
 }
 
 # ---------------------------------------------------------------------------
-# Passo 6 — Recompactar squashfs
+# Passo 6 — Recompactar squashfs principal
 # ---------------------------------------------------------------------------
 repack_squashfs() {
-    step "Recompactando sistema de arquivos (squashfs)"
+    step "Recompactando sistema de arquivos principal (squashfs)"
 
     local extract_dir="${BUILD_DIR}/iso-extract"
     local squash_dir="${BUILD_DIR}/squashfs-root"
@@ -628,75 +628,93 @@ repack_squashfs() {
     squash_size=$(du -sx --block-size=1 "${squash_dir}" 2>/dev/null | cut -f1 || echo "0")
     printf "%d" "${squash_size}" > "${extract_dir}/casper/filesystem.size" 2>/dev/null || true
 
-    info "squashfs gerado: $(du -sh "${squash_out}" | cut -f1)"
+    # Atualizar o initrd e kernel na ISO se foram gerados novos no chroot
+    local new_initrd
+    new_initrd=$(ls -t "${squash_dir}/boot"/initrd.img* 2>/dev/null | head -1 || true)
+    if [[ -n "${new_initrd}" && -f "${new_initrd}" ]]; then
+        info "Atualizando /casper/initrd com novo initramfs NayBinho (${new_initrd})..."
+        cp "${new_initrd}" "${extract_dir}/casper/initrd"
+    fi
+    local new_vmlinuz
+    new_vmlinuz=$(ls -t "${squash_dir}/boot"/vmlinuz* 2>/dev/null | head -1 || true)
+    if [[ -n "${new_vmlinuz}" && -f "${new_vmlinuz}" ]]; then
+        info "Atualizando /casper/vmlinuz com kernel NayBinho (${new_vmlinuz})..."
+        cp "${new_vmlinuz}" "${extract_dir}/casper/vmlinuz"
+    fi
+
+    info "squashfs principal gerado: $(du -sh "${squash_out}" | cut -f1)"
 }
 
 # ---------------------------------------------------------------------------
-# Passo 6b — Modificar installer.squashfs para substituir Subiquity
+# Passo 6b — Purgar Subiquity e injetar Instalador NayBinho em todas as camadas
 # ---------------------------------------------------------------------------
 patch_installer_squashfs() {
-    step "Substituindo Subiquity (Ubuntu Installer) por NayBinho Installer"
+    step "Substituindo Subiquity (Ubuntu Installer) por NayBinho Installer em todas as camadas"
 
     local extract_dir="${BUILD_DIR}/iso-extract"
-    local installer_dir="${BUILD_DIR}/installer-squashfs-root"
+    local installer_dir="${BUILD_DIR}/layer-squashfs-root"
+    local main_squash="${TARGET_SQUASH_NAME:-ubuntu-server-minimal.squashfs}"
 
-    # Procurar o installer.squashfs (pode ter nomes variados)
-    local installer_sq=""
-    for candidate in \
-        "${extract_dir}/casper/installer.squashfs" \
-        "${extract_dir}/casper/installer.generic.squashfs"; do
-        if [[ -f "${candidate}" ]]; then
-            installer_sq="${candidate}"
-            info "Encontrado installer squashfs: $(basename ${candidate})"
-            break
+    info "Inspecionando camadas squashfs em ${extract_dir}/casper/..."
+    for sq in "${extract_dir}/casper/"*.squashfs; do
+        [[ -f "${sq}" ]] || continue
+        local sq_file="$(basename "${sq}")"
+
+        # Pular a camada principal mínima que já foi regerada no passo anterior
+        if [[ "${sq_file}" == "${main_squash}" ]]; then
+            info "Camada principal ${sq_file} já tratada."
+            continue
         fi
-    done
 
-    if [[ -z "${installer_sq}" ]]; then
-        warn "installer.squashfs não encontrado — pulando passo."
-        return 0
-    fi
+        info "Processando camada complementar: ${sq_file}..."
+        rm -rf "${installer_dir}"
+        mkdir -p "${installer_dir}"
 
-    rm -rf "${installer_dir}"
-    mkdir -p "${installer_dir}"
-    info "Extraindo ${installer_sq}..."
-    unsquashfs -f -d "${installer_dir}" "${installer_sq}" 2>&1 | tee -a "${LOG_FILE}" || {
-        warn "Não foi possível extrair installer.squashfs — Subiquity pode ainda aparecer."
-        return 0
-    }
+        unsquashfs -f -d "${installer_dir}" "${sq}" >/dev/null 2>&1 || {
+            warn "Falha ao descompactar ${sq_file}, pulando."
+            continue
+        }
 
-    info "Mascarando serviços Subiquity dentro do installer.squashfs..."
-    # Criar links simbólicos de mask para todos os serviços do Subiquity
-    mkdir -p "${installer_dir}/etc/systemd/system"
-    for svc in subiquity.service subiquity-server.service subiquity-ui.service \
-                subiquity-reboot.service subiquity-poweroff.service \
-                snap.subiquity.subiquity.service snap.subiquity.subiquity-server.service; do
-        ln -sf /dev/null "${installer_dir}/etc/systemd/system/${svc}" 2>/dev/null || true
-    done
+        # 1. Purgar completamente qualquer serviço ou binário do Subiquity e Curtin
+        find "${installer_dir}" -name "*subiquity*" -exec rm -rf {} + 2>/dev/null || true
+        find "${installer_dir}" -name "*curtin*" -exec rm -rf {} + 2>/dev/null || true
+        rm -rf "${installer_dir}/snap/subiquity" 2>/dev/null || true
+        rm -f "${installer_dir}/usr/bin/subiquity" 2>/dev/null || true
+        rm -f "${installer_dir}/usr/bin/curtin" 2>/dev/null || true
 
-    # Remover binários do Subiquity se existirem
-    rm -f "${installer_dir}/usr/bin/subiquity" 2>/dev/null || true
-    rm -rf "${installer_dir}/snap/subiquity" 2>/dev/null || true
+        # 2. Mascarar todos os serviços do Subiquity para /dev/null
+        mkdir -p "${installer_dir}/etc/systemd/system/multi-user.target.wants"
+        mkdir -p "${installer_dir}/etc/systemd/system/getty.target.wants"
+        for svc in subiquity.service subiquity-server.service subiquity-ui.service \
+                   subiquity-ui@tty1.service subiquity-ui@.service subiquity.target \
+                   snap.subiquity.subiquity.service snap.subiquity.subiquity-server.service \
+                   curtin.service; do
+            ln -sf /dev/null "${installer_dir}/etc/systemd/system/${svc}" 2>/dev/null || true
+            rm -f "${installer_dir}/etc/systemd/system/multi-user.target.wants/${svc}" 2>/dev/null || true
+            rm -f "${installer_dir}/etc/systemd/system/getty.target.wants/${svc}" 2>/dev/null || true
+        done
 
-    # Copiar o wizard-install.sh para o installer.squashfs também
-    mkdir -p "${installer_dir}/opt/naybinho/scripts"
-    if [[ -f "${SCRIPT_DIR}/../system/scripts/wizard-install.sh" ]]; then
+        # 3. Injetar o assistente de instalação do NayBinho NAS
+        mkdir -p "${installer_dir}/opt/naybinho/system/scripts"
+        mkdir -p "${installer_dir}/opt/naybinho/scripts"
         cp "${SCRIPT_DIR}/../system/scripts/wizard-install.sh" \
-           "${installer_dir}/opt/naybinho/scripts/wizard-install.sh"
-        chmod +x "${installer_dir}/opt/naybinho/scripts/wizard-install.sh"
-    fi
+           "${installer_dir}/opt/naybinho/system/scripts/wizard-install.sh" 2>/dev/null || true
+        cp "${SCRIPT_DIR}/../system/scripts/wizard-install.sh" \
+           "${installer_dir}/opt/naybinho/scripts/wizard-install.sh" 2>/dev/null || true
+        chmod +x "${installer_dir}/opt/naybinho/system/scripts/wizard-install.sh" 2>/dev/null || true
+        chmod +x "${installer_dir}/opt/naybinho/scripts/wizard-install.sh" 2>/dev/null || true
 
-    # Adicionar o serviço do NayBinho Installer ao installer.squashfs
-    cat > "${installer_dir}/etc/systemd/system/naybinho-installer.service" <<'UNITEOF'
+        # 4. Criar o serviço naybinho-installer no tty1
+        cat > "${installer_dir}/etc/systemd/system/naybinho-installer.service" <<'UNITEOF'
 [Unit]
 Description=NayBinho NAS Interactive TUI Installer
 After=network.target getty.target
-Conflicts=getty@tty1.service
+Conflicts=getty@tty1.service subiquity.service subiquity-ui.service
 Before=getty@tty1.service
 
 [Service]
 Type=idle
-ExecStart=/opt/naybinho/scripts/wizard-install.sh
+ExecStart=/opt/naybinho/system/scripts/wizard-install.sh
 StandardInput=tty-force
 StandardOutput=inherit
 StandardError=inherit
@@ -709,23 +727,22 @@ Restart=no
 WantedBy=multi-user.target
 UNITEOF
 
-    # Habilitar o serviço
-    mkdir -p "${installer_dir}/etc/systemd/system/multi-user.target.wants"
-    ln -sf /etc/systemd/system/naybinho-installer.service \
-       "${installer_dir}/etc/systemd/system/multi-user.target.wants/naybinho-installer.service" \
-       2>/dev/null || true
+        # Habilitar o serviço no multi-user.target
+        ln -sf /etc/systemd/system/naybinho-installer.service \
+           "${installer_dir}/etc/systemd/system/multi-user.target.wants/naybinho-installer.service" \
+           2>/dev/null || true
 
-    info "Recompactando ${installer_sq}..."
-    rm -f "${installer_sq}"
-    mksquashfs "${installer_dir}" "${installer_sq}" \
-        -comp zstd -Xcompression-level 15 \
-        2>&1 | tee -a "${LOG_FILE}" || \
-    mksquashfs "${installer_dir}" "${installer_sq}" \
-        -comp xz \
-        2>&1 | tee -a "${LOG_FILE}"
+        # 5. Recompactar a camada
+        info "Recompactando camada ${sq_file}..."
+        rm -f "${sq}"
+        mksquashfs "${installer_dir}" "${sq}" \
+            -comp zstd -Xcompression-level 15 >/dev/null 2>&1 || \
+        mksquashfs "${installer_dir}" "${sq}" \
+            -comp xz >/dev/null 2>&1
 
-    rm -rf "${installer_dir}"
-    info "installer.squashfs recompactado: $(du -sh "${installer_sq}" | cut -f1)"
+        rm -rf "${installer_dir}"
+        info "Camada ${sq_file} atualizada: $(du -sh "${sq}" | cut -f1)"
+    done
 }
 
 # ---------------------------------------------------------------------------
