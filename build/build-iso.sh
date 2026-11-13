@@ -228,49 +228,43 @@ prepare_filesystem() {
     step "Extraindo e preparando sistema de arquivos"
 
     local iso_cache="${CACHE_DIR}/${UBUNTU_ISO_NAME}"
-    local iso_mount="${BUILD_DIR}/iso-mount"
     local extract_dir="${BUILD_DIR}/iso-extract"
     local squash_dir="${BUILD_DIR}/squashfs-root"
 
-    mkdir -p "${iso_mount}" "${extract_dir}" "${squash_dir}"
+    mkdir -p "${extract_dir}" "${squash_dir}"
 
-    info "Montando ISO Ubuntu..."
-    mount -o loop,ro "${iso_cache}" "${iso_mount}"
+    info "Extraindo conteúdo da ISO original com xorriso..."
+    xorriso -osirrox on -indev "${iso_cache}" -extract / "${extract_dir}" 2>&1 | tee -a "${LOG_FILE}"
+    chmod -R u+w "${extract_dir}"
 
     # Identificar o squashfs principal do Ubuntu (ubuntu-server-minimal ou filesystem.squashfs)
     TARGET_SQUASH=""
     for candidate in \
-        "${iso_mount}/casper/ubuntu-server-minimal.squashfs" \
-        "${iso_mount}/casper/filesystem.squashfs" \
-        "${iso_mount}/casper/minimal.squashfs"; do
+        "${extract_dir}/casper/ubuntu-server-minimal.squashfs" \
+        "${extract_dir}/casper/filesystem.squashfs" \
+        "${extract_dir}/casper/minimal.squashfs"; do
         if [[ -f "${candidate}" ]]; then
             TARGET_SQUASH="${candidate}"
             break
         fi
     done
     if [[ -z "${TARGET_SQUASH}" ]]; then
-        TARGET_SQUASH=$(find "${iso_mount}/casper" -name "*.squashfs" 2>/dev/null | head -n 1)
+        TARGET_SQUASH=$(find "${extract_dir}/casper" -name "*.squashfs" 2>/dev/null | head -n 1)
     fi
 
     if [[ -z "${TARGET_SQUASH}" || ! -f "${TARGET_SQUASH}" ]]; then
-        die "Nenhum arquivo squashfs encontrado em ${iso_mount}/casper"
+        die "Nenhum arquivo squashfs encontrado em ${extract_dir}/casper"
     fi
 
     TARGET_SQUASH_NAME="$(basename "${TARGET_SQUASH}")"
     info "Squashfs identificado: ${TARGET_SQUASH_NAME}"
 
-    info "Copiando conteúdo da ISO (estruturas de boot, EFI e kernel)..."
-    rsync -a \
-        --exclude="casper/*.squashfs" \
-        --exclude="pool" \
-        --exclude="dists" \
-        "${iso_mount}/" "${extract_dir}/"
-    mkdir -p "${extract_dir}/casper"
-
     info "Extraindo sistema de arquivos (${TARGET_SQUASH_NAME})..."
     unsquashfs -f -d "${squash_dir}" "${TARGET_SQUASH}"
 
-    umount "${iso_mount}" 2>/dev/null || true
+    info "Removendo pacotes offline e camadas duplicadas para manter a ISO leve..."
+    rm -rf "${extract_dir}/pool" "${extract_dir}/dists" 2>/dev/null || true
+    rm -f "${extract_dir}/casper"/*.squashfs 2>/dev/null || true
 
     info "Sistema de arquivos extraído em: ${squash_dir}"
 }
@@ -562,42 +556,22 @@ EOF
 # Passo 8 — Gerar ISO final
 # ---------------------------------------------------------------------------
 generate_iso() {
-    step "Gerando ISO final: ${ISO_OUTPUT_NAME}"
+    step "Gerando ISO final bootável (UEFI + BIOS): ${ISO_OUTPUT_NAME}"
 
     local extract_dir="${BUILD_DIR}/iso-extract"
     local iso_out="${OUTPUT_DIR}/${ISO_OUTPUT_NAME}"
+    local orig_iso="${CACHE_DIR}/${UBUNTU_ISO_NAME}"
 
-    info "Criando ISO com xorriso (suporte UEFI + BIOS)..."
+    info "Capturando opções de boot nativas da ISO Ubuntu (MBR, EFI, El Torito)..."
+    local mkisofs_opts
+    mkisofs_opts=$(xorriso -indev "${orig_iso}" -report_el_torito as_mkisofs 2>/dev/null)
 
-    local boot_args=()
-    if [[ -f "${extract_dir}/boot/grub/i386-pc/eltorito.img" ]]; then
-        boot_args+=(-eltorito-boot boot/grub/i386-pc/eltorito.img -no-emul-boot -boot-load-size 4 -boot-info-table)
-    elif [[ -f "${extract_dir}/isolinux/isolinux.bin" ]]; then
-        boot_args+=(-eltorito-boot isolinux/isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table)
+    if [[ -z "${mkisofs_opts}" ]]; then
+        die "Falha ao extrair parâmetros de boot de ${orig_iso}"
     fi
 
-    if [[ -f "${extract_dir}/boot/grub/efi.img" ]]; then
-        boot_args+=(--efi-boot boot/grub/efi.img -efi-boot-part --efi-boot-image)
-    fi
-
-    if [[ -f "/usr/lib/ISOLINUX/isohdpfx.bin" ]]; then
-        boot_args+=(-isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin)
-    fi
-
-    xorriso -as mkisofs \
-        -iso-level 3 \
-        -full-iso9660-filenames \
-        -volid "${ISO_LABEL}" \
-        -output "${iso_out}" \
-        "${boot_args[@]}" \
-        "${extract_dir}" \
-        2>&1 | tee -a "${LOG_FILE}" || {
-            info "Tentando fallback xorriso..."
-            xorriso -as mkisofs \
-                -r -V "${ISO_LABEL}" \
-                -o "${iso_out}" \
-                "${extract_dir}" 2>&1 | tee -a "${LOG_FILE}"
-        }
+    info "Gerando imagem ISO híbrida bootável com xorriso..."
+    eval "xorriso -as mkisofs ${mkisofs_opts} -V '${ISO_LABEL}' -o '${iso_out}' '${extract_dir}'" 2>&1 | tee -a "${LOG_FILE}"
 
     info "Calculando checksum da ISO gerada..."
     sha256sum "${iso_out}" > "${iso_out}.sha256"

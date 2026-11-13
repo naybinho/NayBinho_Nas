@@ -115,9 +115,12 @@ jobs:
           sudo -E bash build/build-iso.sh --version "${VERSION}" --output dist-release
           sudo chown -R $(id -u):$(id -g) dist-release
 
-      - name: Gerar Checksums SHA256 dos Artefatos
+      - name: Gerar Checksums SHA256 dos Artefatos e Validar Estrutura Bootável
         run: |
           cd dist-release
+          echo "=== Informações de MBR e Particionamento Híbrido da ISO ==="
+          file "naybinho-nas-v${VERSION}-amd64.iso"
+          fdisk -l "naybinho-nas-v${VERSION}-amd64.iso" || true
           sha256sum "naybinho-nas-v${VERSION}-amd64.iso" > "naybinho-nas-v${VERSION}-amd64.iso.sha256"
           sha256sum "naybinho-update-v${VERSION}.tar.gz" > "naybinho-update-v${VERSION}.tar.gz.sha256"
           cd ..
