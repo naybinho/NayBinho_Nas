@@ -586,7 +586,7 @@ MOTDEOF
 
     # --- Limpeza no chroot ---
     info "Limpando caches no chroot..."
-    chroot_exec "apt-get clean && apt-get autoremove -y && rm -rf /tmp/* /var/tmp/*"
+    chroot_exec "apt-get clean && apt-get autoremove -y && rm -rf /tmp/* /var/tmp/* /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*"
     rm -f "${squash_dir}/etc/resolv.conf"
 
     # Desmontar filesystems do chroot
@@ -613,11 +613,13 @@ repack_squashfs() {
     info "Atualizando a camada principal do sistema em ${squash_out}..."
     rm -f "${squash_out}"
     mksquashfs "${squash_dir}" "${squash_out}" \
-        -comp zstd \
-        -Xcompression-level 15 \
+        -comp xz \
+        -b 1048576 \
+        -Xbcj x86 \
         2>&1 | tee -a "${LOG_FILE}" || \
     mksquashfs "${squash_dir}" "${squash_out}" \
-        -comp xz \
+        -comp zstd \
+        -Xcompression-level 19 \
         2>&1 | tee -a "${LOG_FILE}"
 
     info "Atualizando manifest do filesystem..."
@@ -732,13 +734,16 @@ UNITEOF
            "${installer_dir}/etc/systemd/system/multi-user.target.wants/naybinho-installer.service" \
            2>/dev/null || true
 
-        # 5. Recompactar a camada
-        info "Recompactando camada ${sq_file}..."
+        # 5. Recompactar a camada com compressão XZ máxima
+        info "Recompactando camada ${sq_file} com alta compressão xz..."
         rm -f "${sq}"
         mksquashfs "${installer_dir}" "${sq}" \
-            -comp zstd -Xcompression-level 15 >/dev/null 2>&1 || \
+            -comp xz \
+            -b 1048576 \
+            -Xbcj x86 \
+            >/dev/null 2>&1 || \
         mksquashfs "${installer_dir}" "${sq}" \
-            -comp xz >/dev/null 2>&1
+            -comp zstd -Xcompression-level 19 >/dev/null 2>&1
 
         rm -rf "${installer_dir}"
         info "Camada ${sq_file} atualizada: $(du -sh "${sq}" | cut -f1)"
