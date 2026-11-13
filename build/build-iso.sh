@@ -262,9 +262,8 @@ prepare_filesystem() {
     info "Extraindo sistema de arquivos (${TARGET_SQUASH_NAME})..."
     unsquashfs -f -d "${squash_dir}" "${TARGET_SQUASH}"
 
-    info "Removendo pacotes offline e camadas duplicadas para manter a ISO leve..."
+    info "Removendo pacotes offline para manter a ISO compacta e compatível..."
     rm -rf "${extract_dir}/pool" "${extract_dir}/dists" 2>/dev/null || true
-    rm -f "${extract_dir}/casper"/*.squashfs 2>/dev/null || true
 
     info "Sistema de arquivos extraído em: ${squash_dir}"
 }
@@ -496,11 +495,7 @@ repack_squashfs() {
     local squash_dir="${BUILD_DIR}/squashfs-root"
     local squash_out="${extract_dir}/casper/${TARGET_SQUASH_NAME:-ubuntu-server-minimal.squashfs}"
 
-    info "Limpando arquivos legados e pacotes offline..."
-    rm -rf "${extract_dir}/pool" "${extract_dir}/dists" 2>/dev/null || true
-    rm -f "${extract_dir}/casper"/*.squashfs 2>/dev/null || true
-
-    info "Gerando novo squashfs em ${squash_out}..."
+    info "Atualizando a camada principal do sistema em ${squash_out}..."
     rm -f "${squash_out}"
     mksquashfs "${squash_dir}" "${squash_out}" \
         -comp zstd \
