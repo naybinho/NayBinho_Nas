@@ -421,16 +421,18 @@ UNITEOF
 
     # Habilitar serviços
     chroot_exec "
-        systemctl enable docker
-        systemctl enable redis-server
-        systemctl enable naybinho-backend.service
-        systemctl enable naybinho-frontend.service
-        systemctl enable naybinho-storage.service
-        systemctl enable fail2ban
-        systemctl enable smartd
-        systemctl enable mdadm
-        systemctl enable ufw
-    "
+        systemctl enable docker 2>/dev/null || true
+        systemctl enable naybinho-backend.service 2>/dev/null || true
+        systemctl enable naybinho-frontend.service 2>/dev/null || true
+        systemctl enable naybinho-storage.service 2>/dev/null || true
+        systemctl enable redis-server 2>/dev/null || true
+        systemctl enable redis 2>/dev/null || true
+        systemctl enable fail2ban 2>/dev/null || true
+        systemctl enable smartd 2>/dev/null || true
+        systemctl enable smartmontools 2>/dev/null || true
+        systemctl enable mdadm 2>/dev/null || true
+        systemctl enable ufw 2>/dev/null || true
+    " || true
 
     # --- Configurar GRUB ---
     info "Configurando GRUB..."
@@ -439,15 +441,18 @@ UNITEOF
     # --- Configurar UFW (firewall) ---
     info "Configurando firewall UFW..."
     chroot_exec "
-        ufw default deny incoming
-        ufw default allow outgoing
-        ufw allow 22/tcp comment 'SSH'
-        ufw allow 8080/tcp comment 'NayBinho Dashboard'
-        ufw allow 8081/tcp comment 'NayBinho API'
-        ufw allow 139/tcp comment 'Samba'
-        ufw allow 445/tcp comment 'Samba'
-        ufw allow 2049/tcp comment 'NFS'
-        ufw allow 2049/udp comment 'NFS'
+        ufw default deny incoming 2>/dev/null || true
+        ufw default allow outgoing 2>/dev/null || true
+        ufw allow 22/tcp comment 'SSH' 2>/dev/null || true
+        ufw allow 80/tcp comment 'NayBinho Web' 2>/dev/null || true
+        ufw allow 8000/tcp comment 'NayBinho API' 2>/dev/null || true
+        ufw allow 8080/tcp comment 'NayBinho Dashboard' 2>/dev/null || true
+        ufw allow 8081/tcp comment 'NayBinho API Alt' 2>/dev/null || true
+        ufw allow 139/tcp comment 'Samba' 2>/dev/null || true
+        ufw allow 445/tcp comment 'Samba' 2>/dev/null || true
+        ufw allow 2049/tcp comment 'NFS' 2>/dev/null || true
+        ufw allow 2049/udp comment 'NFS' 2>/dev/null || true
+    " || true
     "
 
     # --- Configurar MOTD ---
