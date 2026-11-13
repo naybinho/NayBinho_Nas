@@ -116,76 +116,16 @@ jobs:
               iso_staging/
           }
 
-      - name: Extrair Notas de Lançamento (Changelog)
-        run: |
-          mkdir -p dist-release
-          python3 -c "
-          import re, os
-          version = os.environ.get('VERSION', '1.0.0')
-          tag_name = 'v' + version
-          changelog_file = 'CHANGELOG.md'
-          notes = ''
-          if os.path.exists(changelog_file):
-              with open(changelog_file, 'r', encoding='utf-8') as f:
-                  content = f.read()
-              pattern = rf'## \[?{re.escape(tag_name)}\]?.*?(?=\n## \[?v|\Z)'
-              match = re.search(pattern, content, re.DOTALL)
-              if match:
-                  notes = match.group(0).strip()
-          
-          if not notes:
-              notes = f'''## {tag_name} - NayBinho NAS
-          
-### 🚀 Novidades
-- Atualização oficial do sistema operacional NayBinho NAS v{version}.
-- Imagem ISO bootável baseada no Ubuntu 26.04.1 LTS.
-- Suporte a múltiplas lojas Docker e gerenciamento RAID 0 a 10.
-
-### ⚡ Melhorias
-- Otimizações de desempenho e telemetria no painel de controle.
-- Atualizações de segurança nos serviços de rede e compartilhamentos.
-
-### 🐛 Correções
-- Correções de estabilidade geral e compatibilidade do sistema.
-'''
-          with open('dist-release/RELEASE_NOTES.md', 'w', encoding='utf-8') as f:
-              f.write(notes + '\n\n---\n**Arquivos disponíveis:**\n- `naybinho-nas-v' + version + '-amd64.iso` (Imagem ISO Bootável)\n- `naybinho-update-v' + version + '.tar.gz` (Pacote de Atualização Automática)\n')
-          "
-
-      - name: Gerar Checksums SHA256 e Metadados de Release
+      - name: Gerar Checksums SHA256 dos Artefatos
         run: |
           cd dist-release
           sha256sum "naybinho-nas-v${VERSION}-amd64.iso" > "naybinho-nas-v${VERSION}-amd64.iso.sha256"
           sha256sum "naybinho-update-v${VERSION}.tar.gz" > "naybinho-update-v${VERSION}.tar.gz.sha256"
-          
-          # Cria release.json para consumo do auto-updater do NayBinho NAS
-          python3 -c "
-          import json, os
-          version = os.environ.get('VERSION', '1.0.0')
-          notes = ''
-          if os.path.exists('RELEASE_NOTES.md'):
-              with open('RELEASE_NOTES.md', 'r', encoding='utf-8') as f:
-                  notes = f.read()
-          with open('naybinho-nas-v' + version + '-amd64.iso.sha256', 'r') as f:
-              iso_hash = f.read().split()[0]
-          with open('naybinho-update-v' + version + '.tar.gz.sha256', 'r') as f:
-              up_hash = f.read().split()[0]
-          
-          rel = {
-              'version': version,
-              'tag_name': 'v' + version,
-              'iso_name': f'naybinho-nas-v{version}-amd64.iso',
-              'iso_sha256': iso_hash,
-              'update_package': f'naybinho-update-v{version}.tar.gz',
-              'update_sha256': up_hash,
-              'min_supported_version': '1.0.0',
-              'requires_reboot': False,
-              'changelog': notes
-          }
-          with open('release.json', 'w', encoding='utf-8') as f:
-              json.dump(rel, f, indent=2, ensure_ascii=False)
-          "
           cd ..
+
+      - name: Extrair Notas de Lançamento (Changelog) e Gerar release.json
+        run: |
+          python3 build/prepare_release_notes.py
 
       - name: Publicar Release no GitHub
         uses: softprops/action-gh-release@v2
