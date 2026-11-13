@@ -287,7 +287,9 @@ customize_filesystem() {
     mount --bind /run     "${squash_dir}/run"
 
     # DNS para o chroot
-    cp /etc/resolv.conf "${squash_dir}/etc/resolv.conf"
+    rm -f "${squash_dir}/etc/resolv.conf" 2>/dev/null || true
+    echo "nameserver 1.1.1.1" > "${squash_dir}/etc/resolv.conf"
+    echo "nameserver 8.8.8.8" >> "${squash_dir}/etc/resolv.conf"
 
     # Função para executar comandos no chroot
     chroot_exec() {
@@ -464,11 +466,11 @@ MOTDEOF
 
     # Desmontar filesystems do chroot
     info "Desmontando ambiente chroot..."
-    umount "${squash_dir}/run"  2>/dev/null || true
-    umount "${squash_dir}/sys"  2>/dev/null || true
-    umount "${squash_dir}/proc" 2>/dev/null || true
-    umount "${squash_dir}/dev/pts" 2>/dev/null || true
-    umount "${squash_dir}/dev"  2>/dev/null || true
+    umount -l "${squash_dir}/run"  2>/dev/null || true
+    umount -l "${squash_dir}/sys"  2>/dev/null || true
+    umount -l "${squash_dir}/proc" 2>/dev/null || true
+    umount -l "${squash_dir}/dev/pts" 2>/dev/null || true
+    umount -l "${squash_dir}/dev"  2>/dev/null || true
 
     info "Customização do filesystem concluída."
 }
