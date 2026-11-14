@@ -423,7 +423,7 @@ Requires=docker.service
 Type=simple
 User=naybinho
 WorkingDirectory=/opt/naybinho/backend
-ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8081 --workers 2
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -473,9 +473,30 @@ SyslogIdentifier=naybinho-storage
 WantedBy=multi-user.target
 UNITEOF
 
+    # Criar script de inicialização do storage
+    mkdir -p "${squash_dir}/opt/naybinho/scripts"
+    cat > "${squash_dir}/opt/naybinho/scripts/storage-init.sh" <<'STOEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p /mnt/storage /mnt/pools /opt/naybinho/data/storage
+chmod -R 775 /mnt/storage /mnt/pools 2>/dev/null || true
+exit 0
+STOEOF
+    chmod +x "${squash_dir}/opt/naybinho/scripts/storage-init.sh"
+
+    # Configuração Nginx
+    mkdir -p "${squash_dir}/etc/nginx/conf.d" "${squash_dir}/var/cache/nginx/naybinho"
+    cp "${squash_dir}/opt/naybinho/system/nginx/naybinho.conf" "${squash_dir}/etc/nginx/conf.d/naybinho.conf" 2>/dev/null || true
+    rm -f "${squash_dir}/etc/nginx/sites-enabled/default" "${squash_dir}/etc/nginx/conf.d/default.conf" 2>/dev/null || true
+    chroot_exec "chown -R www-data:www-data /var/cache/nginx/naybinho 2>/dev/null || true"
+
+    # Remover scripts herdados do live-server
+    rm -rf "${squash_dir}/etc/initramfs-tools/scripts/init-bottom/live-server" "${squash_dir}/etc/initramfs-tools/conf.d/default-layer.conf" "${squash_dir}/etc/initramfs-tools/conf.d/casper"* 2>/dev/null || true
+
     # Habilitar serviços
     chroot_exec "
         systemctl mask subiquity.service subiquity-server.service subiquity-ui.service 2>/dev/null || true
+        systemctl mask nginx.service 2>/dev/null || true
         systemctl enable naybinho-installer.service 2>/dev/null || true
         systemctl enable docker 2>/dev/null || true
         systemctl enable naybinho-backend.service 2>/dev/null || true
@@ -489,7 +510,6 @@ UNITEOF
         systemctl enable mdadm 2>/dev/null || true
         systemctl enable ufw 2>/dev/null || true
     " || true
-
     # --- Configurar GRUB ---
     info "Configurando padrões do GRUB (/etc/default/grub.d/naybinho.cfg)..."
     mkdir -p "${squash_dir}/etc/default/grub.d"
