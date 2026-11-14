@@ -500,12 +500,29 @@ NSHEOF
         "${TARGET_DEV}" \
         --recheck 2>/dev/null || true
 
+        # Remover casper e scripts de Live CD do sistema instalado para boot nativo de disco
+    rm -rf "${TARGET_MOUNT}/usr/share/initramfs-tools/scripts/casper"* 2>/dev/null || true
+    rm -rf "${TARGET_MOUNT}/etc/casper.conf" 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" dpkg --purge casper lupin-casper 2>/dev/null || true
+
+    # Gerar initramfs nativo e limpo para o disco local instalado
+    echo "[ 8/9 ] Gerando initramfs nativo para o disco rígido..." 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" update-initramfs -c -k all 2>/dev/null || \
+    chroot "${TARGET_MOUNT}" update-initramfs -u -k all 2>/dev/null || true
+
+    local gen_kernel=$(ls -v "${TARGET_MOUNT}/boot"/vmlinuz-* 2>/dev/null | grep -v 'vmlinuz$' | tail -n 1)
+    local gen_initrd=$(ls -v "${TARGET_MOUNT}/boot"/initrd.img-* 2>/dev/null | grep -v 'initrd.img$' | tail -n 1)
+    if [[ -n "${gen_kernel}" && -f "${gen_kernel}" ]]; then
+        cp -L "${gen_kernel}" "${TARGET_MOUNT}/boot/vmlinuz" 2>/dev/null || true
+    fi
+    if [[ -n "${gen_initrd}" && -f "${gen_initrd}" ]]; then
+        cp -L "${gen_initrd}" "${TARGET_MOUNT}/boot/initrd.img" 2>/dev/null || true
+    fi
+
     # 6. Atualizar lista de inicialização pelo grub-mkconfig
     chroot "${TARGET_MOUNT}" update-grub 2>/dev/null || true
 
-        # 7. Criar diretamente o grub.cfg independente oficial do NayBinho NAS como garantia
-    local kernel_name=$(basename "$(ls -v "${TARGET_MOUNT}/boot"/vmlinuz-* 2>/dev/null | tail -n 1)")
-    local initrd_name=$(basename "$(ls -v "${TARGET_MOUNT}/boot"/initrd.img-* 2>/dev/null | tail -n 1)")
+    # 7. Criar diretamente o grub.cfg independente oficial do NayBinho NAS como garantia
     mkdir -p "${TARGET_MOUNT}/boot/grub"
     cat > "${TARGET_MOUNT}/boot/grub/grub.cfg" <<GRUBCFGEOF
 # NayBinho NAS — Configuração Direta e Independente de Boot GRUB
@@ -527,18 +544,18 @@ menuentry "NayBinho NAS" --class naybinho --class gnu-linux --class gnu --class 
     insmod fat
     insmod gzio
     search --no-floppy --fs-uuid --set=root ${UUID_ROOT}
-    linux /boot/${kernel_name} root=UUID=${UUID_ROOT} ro quiet console=tty1 net.ifnames=0 biosdevname=0
-    initrd /boot/${initrd_name}
+    linux /boot/vmlinuz root=UUID=${UUID_ROOT} ro quiet console=tty1 net.ifnames=0 biosdevname=0 rootdelay=3
+    initrd /boot/initrd.img
 }
 
-menuentry "NayBinho NAS (Fallback)" --class naybinho --class gnu-linux --class gnu --class os {
+menuentry "NayBinho NAS (Recuperacao)" --class naybinho --class gnu-linux --class gnu --class os {
     insmod part_gpt
     insmod part_msdos
     insmod ext2
     insmod fat
     insmod gzio
     search --no-floppy --fs-uuid --set=root ${UUID_ROOT}
-    linux /boot/vmlinuz root=UUID=${UUID_ROOT} ro quiet console=tty1 net.ifnames=0 biosdevname=0
+    linux /boot/vmlinuz root=UUID=${UUID_ROOT} ro single console=tty1 net.ifnames=0 biosdevname=0
     initrd /boot/initrd.img
 }
 GRUBCFGEOF
