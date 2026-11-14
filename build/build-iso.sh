@@ -361,8 +361,19 @@ DISTRIB_CODENAME=noble
 DISTRIB_DESCRIPTION="NayBinho NAS v1.0.0"
 EOF
 
-    echo "NayBinho NAS v1.0.0 \n \l" > "${squash_dir}/etc/issue"
-    echo "NayBinho NAS v1.0.0" > "${squash_dir}/etc/issue.net"
+        cat > "${squash_dir}/etc/issue" <<'ISSUEEOF'
+  _   _             ____  _       _             _   _    _    ____  
+ | \ | | __ _ _   _| __ )(_)_ __ | |__   ___    | \ | |  / \  / ___| 
+ |  \| |/ _` | | | |  _ \| | '_ \| '_ \ / _ \   |  \| | / _ \ \___ \ 
+ | |\  | (_| | |_| | |_) | | | | | | | | (_) |  | |\  |/ ___ \ ___) |
+ |_| \_|\__,_|\__, |____/|_|_| |_|_| |_|\___/   |_| \_/_/   \_\____/ 
+              |___/                                                   
+                 NayBinho NAS v1.0.0 (Noble Numbat)
+   Acesse a Interface Web: http://\4:8000 ou http://naybinho-nas.local:8000
+   Login padrao do console: admin / naybinho  (ou root / naybinho)
+
+ISSUEEOF
+    cp "${squash_dir}/etc/issue" "${squash_dir}/etc/issue.net" 2>/dev/null || true
 
     # --- Copiar arquivos do NayBinho ---
     info "Copiando arquivos do NayBinho NAS..."
@@ -374,15 +385,23 @@ EOF
         "${SCRIPT_DIR}/../appstore" \
         "${SCRIPT_DIR}/../VERSION" \
         "${squash_dir}/opt/naybinho/" || true
+    mkdir -p "${squash_dir}/opt/naybinho/frontend"
+    if [[ -d "${SCRIPT_DIR}/../frontend/dist" ]]; then
+        cp -r "${SCRIPT_DIR}/../frontend/dist" "${squash_dir}/opt/naybinho/frontend/" 2>/dev/null || true
+        cp -r "${SCRIPT_DIR}/../frontend/dist" "${squash_dir}/opt/naybinho/" 2>/dev/null || true
+    fi
 
     # Garantir permissão de execução nos scripts
     chmod +x "${squash_dir}/opt/naybinho/system/scripts/"*.sh 2>/dev/null || true
 
-    # --- Criar usuário naybinho ---
-    info "Criando usuário do sistema naybinho..."
+    # --- Criar usuários do sistema ---
+    info "Criando usuários e definindo credenciais padrão..."
     chroot_exec "
         useradd -r -s /usr/sbin/nologin -d /opt/naybinho -c 'NayBinho NAS System' naybinho 2>/dev/null || true
         usermod -aG docker naybinho 2>/dev/null || true
+        useradd -m -s /bin/bash -G sudo,docker admin 2>/dev/null || true
+        echo 'admin:naybinho' | chpasswd 2>/dev/null || true
+        echo 'root:naybinho' | chpasswd 2>/dev/null || true
     "
 
     # --- Configurar Instalador TUI NayBinho no tty1 (Live ISO) ---
