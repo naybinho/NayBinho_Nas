@@ -399,9 +399,7 @@ perform_install() {
 UUID=${UUID_ROOT}  /           ext4    defaults,noatime,rw,errors=remount-ro   0      1
 UUID=${UUID_BOOT}  /boot/efi   vfat    umask=0077                              0      2
 tmpfs              /tmp        tmpfs   defaults,noatime,mode=1777              0      0
-tmpfs              /run        tmpfs   defaults,noatime,mode=0755              0      0
 FSTABEOF
-
     echo "naybinho-nas" > "${TARGET_MOUNT}/etc/hostname"
     sleep 1
 
@@ -620,6 +618,13 @@ configfile \$prefix/grub.cfg
 EFIFORWARD
     done
     chroot "${TARGET_MOUNT}" systemctl disable naybinho-installer.service 2>/dev/null || true
+        # Garantir caminho correto do frontend
+    mkdir -p "${TARGET_MOUNT}/opt/naybinho/frontend"
+    if [[ -d "${TARGET_MOUNT}/opt/naybinho/dist" && ! -d "${TARGET_MOUNT}/opt/naybinho/frontend/dist" ]]; then
+        cp -r "${TARGET_MOUNT}/opt/naybinho/dist" "${TARGET_MOUNT}/opt/naybinho/frontend/" 2>/dev/null || true
+    fi
+    chown -R www-data:www-data "${TARGET_MOUNT}/opt/naybinho/frontend" 2>/dev/null || true
+
     # Criar script de inicialização do storage
     mkdir -p "${TARGET_MOUNT}/opt/naybinho/scripts"
     cat > "${TARGET_MOUNT}/opt/naybinho/scripts/storage-init.sh" <<'STOEOF'
@@ -631,19 +636,55 @@ exit 0
 STOEOF
     chmod +x "${TARGET_MOUNT}/opt/naybinho/scripts/storage-init.sh"
 
-    # Configurar Nginx e diretórios
+    # Configurar Nginx nativo do sistema e diretórios
     mkdir -p "${TARGET_MOUNT}/etc/nginx/conf.d"
     cp "${TARGET_MOUNT}/opt/naybinho/system/nginx/naybinho.conf" "${TARGET_MOUNT}/etc/nginx/conf.d/naybinho.conf" 2>/dev/null || true
     rm -f "${TARGET_MOUNT}/etc/nginx/sites-enabled/default" "${TARGET_MOUNT}/etc/nginx/conf.d/default.conf" 2>/dev/null || true
     mkdir -p "${TARGET_MOUNT}/var/cache/nginx/naybinho" "${TARGET_MOUNT}/var/log/nginx" "${TARGET_MOUNT}/opt/naybinho/data" "${TARGET_MOUNT}/opt/naybinho/logs" "${TARGET_MOUNT}/var/log/naybinho"
-    chroot "${TARGET_MOUNT}" chown -R www-data:www-data /var/cache/nginx/naybinho 2>/dev/null || true
-    chroot "${TARGET_MOUNT}" systemctl mask nginx.service 2>/dev/null || true
+    chown -R www-data:www-data "${TARGET_MOUNT}/var/cache/nginx/naybinho" 2>/dev/null || true
+    rm -f "${TARGET_MOUNT}/etc/systemd/system/naybinho-frontend.service" 2>/dev/null || true
+    rm -f "${TARGET_MOUNT}/etc/systemd/system/multi-user.target.wants/naybinho-frontend.service" 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" systemctl unmask nginx.service 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" systemctl enable nginx.service 2>/dev/null || true
+
+    # Ajustar dependência do Backend para Wants=docker.service
+    sed -i 's/Requires=docker.service/Wants=docker.service/g' "${TARGET_MOUNT}/etc/systemd/system/naybinho-backend.service" 2>/dev/null || true
+
+    # Criar usuário admin no Linux e definir senhas de emergência
+    chroot "${TARGET_MOUNT}" useradd -m -s /bin/bash -G sudo,docker admin 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" sh -c 'echo "admin:naybinho" | chpasswd' 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" sh -c 'echo "root:naybinho" | chpasswd' 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" sh -c 'echo "naybinho:naybinho" | chpasswd' 2>/dev/null || true
+
+    # Configurar /etc/issue com banner e acesso Web
+    cat > "${TARGET_MOUNT}/etc/issue" <<'ISSUEEOF'
+
+ \033[1;36m_   _             ____  _       _             _   _    _    ____  \033[0m
+\033[1;36m| \ | | __ _ _   _| __ )(_)_ __ | |__   ___   | \ | |  / \  / ___| \033[0m
+\033[1;36m|  \| |/ _` | | | |  _ \| | '_ \| '_ \ / _ \  |  \| | / _ \ \___ \ \033[0m
+\033[1;36m| |\  | (_| | |_| | |_) | | | | | | | | (_) | | |\  |/ ___ \ ___) |\033[0m
+\033[1;36m|_| \_|\__,_|\__, |____/|_|_| |_|_| |_|\___/  |_| \_/_/   \_\____/ \033[0m
+\033[1;36m             |___/                                                 \033[0m
+
+  \033[1;32mNayBinho NAS v1.0.0 — Sistema Instalado com Sucesso!\033[0m
+  -------------------------------------------------------------
+  Acesse a interface de gerenciamento pelo seu navegador:
+  \033[1;33m--> http://\4\033[0m (Porta 80)
+
+  Login inicial web: \033[1;37madmin\033[0m / Senha: \033[1;37mnaybinho\033[0m
+  Console Linux:     \033[1;37madmin\033[0m / Senha: \033[1;37mnaybinho\033[0m
+  -------------------------------------------------------------
+
+ISSUEEOF
+    cp "${TARGET_MOUNT}/etc/issue" "${TARGET_MOUNT}/etc/issue.net" 2>/dev/null || true
+
+    # Habilitar login no console tty1
+    chroot "${TARGET_MOUNT}" systemctl enable getty@tty1.service 2>/dev/null || true
 
     # Habilitar serviços
     chroot "${TARGET_MOUNT}" systemctl enable docker.service 2>/dev/null || true
     chroot "${TARGET_MOUNT}" systemctl enable naybinho-storage.service 2>/dev/null || true
     chroot "${TARGET_MOUNT}" systemctl enable naybinho-backend.service 2>/dev/null || true
-    chroot "${TARGET_MOUNT}" systemctl enable naybinho-frontend.service 2>/dev/null || true
     # Desmontar bind mounts
     for dir in run sys proc dev/pts dev; do
         umount -l "${TARGET_MOUNT}/${dir}" 2>/dev/null || true
