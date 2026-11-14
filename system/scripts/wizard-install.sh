@@ -394,11 +394,12 @@ perform_install() {
     UUID_ROOT=$(blkid -s UUID -o value "${PART_ROOT}" 2>/dev/null || echo "")
     UUID_BOOT=$(blkid -s UUID -o value "${PART_BOOT}" 2>/dev/null || echo "")
     mkdir -p "${TARGET_MOUNT}/etc"
-    cat > "${TARGET_MOUNT}/etc/fstab" <<FSTABEOF
+        cat > "${TARGET_MOUNT}/etc/fstab" <<FSTABEOF
 # /etc/fstab — NayBinho NAS
-# <file system>                           <mount>     <type>  <options>           <dump> <pass>
-UUID=${UUID_ROOT}  /           ext4    errors=remount-ro   0      1
-UUID=${UUID_BOOT}  /boot/efi   vfat    umask=0077          0      2
+UUID=${UUID_ROOT}  /           ext4    defaults,noatime,rw,errors=remount-ro   0      1
+UUID=${UUID_BOOT}  /boot/efi   vfat    umask=0077                              0      2
+tmpfs              /tmp        tmpfs   defaults,noatime,mode=1777              0      0
+tmpfs              /run        tmpfs   defaults,noatime,mode=0755              0      0
 FSTABEOF
 
     echo "naybinho-nas" > "${TARGET_MOUNT}/etc/hostname"
@@ -517,7 +518,12 @@ update_initramfs=yes
 backup_initramfs=no
 UPCONFEOF
 
-    # 2. Purgar completamente o casper e qualquer script live do sistema instalado
+        # 2. Purgar completamente o casper, layered media e qualquer script live do sistema instalado
+    rm -rf "${TARGET_MOUNT}/etc/initramfs-tools/scripts/init-bottom/live-server" 2>/dev/null || true
+    rm -rf "${TARGET_MOUNT}/etc/initramfs-tools/scripts/"* 2>/dev/null || true
+    rm -rf "${TARGET_MOUNT}/etc/initramfs-tools/conf.d/default-layer.conf" 2>/dev/null || true
+    rm -rf "${TARGET_MOUNT}/etc/initramfs-tools/conf.d/casperize.conf" 2>/dev/null || true
+    rm -rf "${TARGET_MOUNT}/etc/initramfs-tools/conf.d/casper"* 2>/dev/null || true
     rm -rf "${TARGET_MOUNT}/etc/casper.conf" 2>/dev/null || true
     rm -rf "${TARGET_MOUNT}/usr/share/initramfs-tools/hooks/casper"* 2>/dev/null || true
     rm -rf "${TARGET_MOUNT}/usr/share/initramfs-tools/scripts/casper"* 2>/dev/null || true
@@ -574,7 +580,7 @@ menuentry "NayBinho NAS" --class naybinho --class gnu-linux --class gnu --class 
     insmod fat
     insmod gzio
     search --no-floppy --fs-uuid --set=root ${UUID_ROOT}
-    linux /boot/vmlinuz root=UUID=${UUID_ROOT} ro quiet console=tty1 net.ifnames=0 biosdevname=0 rootdelay=3
+    linux /boot/vmlinuz root=UUID=${UUID_ROOT} rw quiet console=tty1 net.ifnames=0 biosdevname=0 rootdelay=3
     initrd /boot/initrd.img
 }
 
@@ -585,7 +591,7 @@ menuentry "NayBinho NAS (Recuperacao)" --class naybinho --class gnu-linux --clas
     insmod fat
     insmod gzio
     search --no-floppy --fs-uuid --set=root ${UUID_ROOT}
-    linux /boot/vmlinuz root=UUID=${UUID_ROOT} ro single console=tty1 net.ifnames=0 biosdevname=0
+    linux /boot/vmlinuz root=UUID=${UUID_ROOT} rw single console=tty1 net.ifnames=0 biosdevname=0
     initrd /boot/initrd.img
 }
 GRUBCFGEOF
@@ -614,10 +620,30 @@ configfile \$prefix/grub.cfg
 EFIFORWARD
     done
     chroot "${TARGET_MOUNT}" systemctl disable naybinho-installer.service 2>/dev/null || true
-    chroot "${TARGET_MOUNT}" systemctl enable  docker.service              2>/dev/null || true
-    chroot "${TARGET_MOUNT}" systemctl enable  naybinho-backend.service    2>/dev/null || true
-    chroot "${TARGET_MOUNT}" systemctl enable  naybinho-frontend.service   2>/dev/null || true
+    # Criar script de inicialização do storage
+    mkdir -p "${TARGET_MOUNT}/opt/naybinho/scripts"
+    cat > "${TARGET_MOUNT}/opt/naybinho/scripts/storage-init.sh" <<'STOEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p /mnt/storage /mnt/pools /opt/naybinho/data/storage
+chmod -R 775 /mnt/storage /mnt/pools 2>/dev/null || true
+exit 0
+STOEOF
+    chmod +x "${TARGET_MOUNT}/opt/naybinho/scripts/storage-init.sh"
 
+    # Configurar Nginx e diretórios
+    mkdir -p "${TARGET_MOUNT}/etc/nginx/conf.d"
+    cp "${TARGET_MOUNT}/opt/naybinho/system/nginx/naybinho.conf" "${TARGET_MOUNT}/etc/nginx/conf.d/naybinho.conf" 2>/dev/null || true
+    rm -f "${TARGET_MOUNT}/etc/nginx/sites-enabled/default" "${TARGET_MOUNT}/etc/nginx/conf.d/default.conf" 2>/dev/null || true
+    mkdir -p "${TARGET_MOUNT}/var/cache/nginx/naybinho" "${TARGET_MOUNT}/var/log/nginx" "${TARGET_MOUNT}/opt/naybinho/data" "${TARGET_MOUNT}/opt/naybinho/logs" "${TARGET_MOUNT}/var/log/naybinho"
+    chroot "${TARGET_MOUNT}" chown -R www-data:www-data /var/cache/nginx/naybinho 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" systemctl mask nginx.service 2>/dev/null || true
+
+    # Habilitar serviços
+    chroot "${TARGET_MOUNT}" systemctl enable docker.service 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" systemctl enable naybinho-storage.service 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" systemctl enable naybinho-backend.service 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" systemctl enable naybinho-frontend.service 2>/dev/null || true
     # Desmontar bind mounts
     for dir in run sys proc dev/pts dev; do
         umount -l "${TARGET_MOUNT}/${dir}" 2>/dev/null || true
