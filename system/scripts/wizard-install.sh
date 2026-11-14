@@ -500,16 +500,46 @@ NSHEOF
         "${TARGET_DEV}" \
         --recheck 2>/dev/null || true
 
-        # Remover casper e scripts de Live CD do sistema instalado para boot nativo de disco
-    rm -rf "${TARGET_MOUNT}/usr/share/initramfs-tools/scripts/casper"* 2>/dev/null || true
+            # 1. Configurar explicitamente initramfs-tools para boot local de disco
+    mkdir -p "${TARGET_MOUNT}/etc/initramfs-tools"
+    cat > "${TARGET_MOUNT}/etc/initramfs-tools/initramfs.conf" <<'INITCONFEOF'
+MODULES=most
+BUSYBOX=auto
+COMPCACHE_SIZE=""
+COMPRESS=zstd
+DEVICE=
+NFSROOT=auto
+BOOT=local
+INITCONFEOF
+
+    cat > "${TARGET_MOUNT}/etc/initramfs-tools/update-initramfs.conf" <<'UPCONFEOF'
+update_initramfs=yes
+backup_initramfs=no
+UPCONFEOF
+
+    # 2. Purgar completamente o casper e qualquer script live do sistema instalado
     rm -rf "${TARGET_MOUNT}/etc/casper.conf" 2>/dev/null || true
-    chroot "${TARGET_MOUNT}" dpkg --purge casper lupin-casper 2>/dev/null || true
+    rm -rf "${TARGET_MOUNT}/usr/share/initramfs-tools/hooks/casper"* 2>/dev/null || true
+    rm -rf "${TARGET_MOUNT}/usr/share/initramfs-tools/scripts/casper"* 2>/dev/null || true
+    rm -rf "${TARGET_MOUNT}/usr/share/initramfs-tools/scripts/live"* 2>/dev/null || true
+    chroot "${TARGET_MOUNT}" dpkg --purge casper lupin-casper live-boot 2>/dev/null || true
 
-    # Gerar initramfs nativo e limpo para o disco local instalado
-    echo "[ 8/9 ] Gerando initramfs nativo para o disco rígido..." 2>/dev/null || true
-    chroot "${TARGET_MOUNT}" update-initramfs -c -k all 2>/dev/null || \
-    chroot "${TARGET_MOUNT}" update-initramfs -u -k all 2>/dev/null || true
+    # 3. Remover o initrd de Live CD herdado do pendrive
+    rm -f "${TARGET_MOUNT}/boot"/initrd.img* 2>/dev/null || true
 
+    # 4. Detectar o kernel e compilar o initramfs nativo diretamente com mkinitramfs
+    local kver=$(ls -v "${TARGET_MOUNT}/lib/modules" 2>/dev/null | tail -n 1)
+    if [[ -z "${kver}" ]]; then
+        kver=$(uname -r)
+    fi
+
+    echo "[ 8/9 ] Gerando initramfs nativo (BOOT=local) para kernel ${kver}..."
+    chroot "${TARGET_MOUNT}" mkinitramfs -o "/boot/initrd.img-${kver}" "${kver}"
+    if [[ ! -f "${TARGET_MOUNT}/boot/initrd.img-${kver}" ]]; then
+        chroot "${TARGET_MOUNT}" update-initramfs -c -k "${kver}" || chroot "${TARGET_MOUNT}" update-initramfs -c -k all || true
+    fi
+
+    # 5. Garantir os arquivos físicos /boot/vmlinuz e /boot/initrd.img
     local gen_kernel=$(ls -v "${TARGET_MOUNT}/boot"/vmlinuz-* 2>/dev/null | grep -v 'vmlinuz$' | tail -n 1)
     local gen_initrd=$(ls -v "${TARGET_MOUNT}/boot"/initrd.img-* 2>/dev/null | grep -v 'initrd.img$' | tail -n 1)
     if [[ -n "${gen_kernel}" && -f "${gen_kernel}" ]]; then
